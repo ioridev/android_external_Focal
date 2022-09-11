@@ -18,7 +18,7 @@ liblcms2_la_SOURCES = \
 
 LOCAL_SRC_FILES:= $(liblcms2_la_SOURCES)
 
-LOCAL_NDK_STL_VARIANT := c++_static
+LOCAL_NDK_STL_VARIANT := gnustl_static
 
 LOCAL_C_INCLUDES := $(LOCAL_PATH) \
 	$(LOCAL_PATH)/include

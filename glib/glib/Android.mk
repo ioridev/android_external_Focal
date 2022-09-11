@@ -95,7 +95,7 @@ LOCAL_CFLAGS := \
 	-DGLIB_COMPILATION \
 	-Wno-format-security
 
-LOCAL_NDK_STL_VARIANT := c++_static
+LOCAL_NDK_STL_VARIANT := gnustl_static
 
 LOCAL_ARM_MODE := arm
 

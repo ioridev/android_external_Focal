@@ -24,7 +24,7 @@ LOCAL_STATIC_LIBRARIES := libhugin liblensfun libboost_filesystem-gcc-mt-1_53 \
 
 LOCAL_MODULE := ptclean
 
-LOCAL_NDK_STL_VARIANT := c++_static
+LOCAL_NDK_STL_VARIANT := gnustl_static
 
 LOCAL_CFLAGS := -O3 -fexceptions -frtti
 
@@ -58,7 +58,7 @@ LOCAL_STATIC_LIBRARIES := libhugin liblensfun libboost_filesystem-gcc-mt-1_53 li
 
 LOCAL_MODULE := linefind
 
-LOCAL_NDK_STL_VARIANT := c++_static
+LOCAL_NDK_STL_VARIANT := gnustl_static
 
 LOCAL_CFLAGS := -O3 -fexceptions -frtti
 
@@ -90,7 +90,7 @@ LOCAL_STATIC_LIBRARIES := libhugin liblensfun libboost_filesystem-gcc-mt-1_53 \
 
 LOCAL_MODULE := autooptimiser
 
-LOCAL_NDK_STL_VARIANT := c++_static
+LOCAL_NDK_STL_VARIANT := gnustl_static
 
 LOCAL_CFLAGS := -O3 -fexceptions -frtti -Wno-sign-compare -Wno-sign-promo -Wno-non-virtual-dtor
 
@@ -121,7 +121,7 @@ LOCAL_STATIC_LIBRARIES := libhugin liblensfun libboost_filesystem-gcc-mt-1_53 \
 
 LOCAL_MODULE := pano_modify
 
-LOCAL_NDK_STL_VARIANT := c++_static
+LOCAL_NDK_STL_VARIANT := gnustl_static
 
 LOCAL_CFLAGS := -O3 -fexceptions -frtti
 
@@ -154,7 +154,7 @@ LOCAL_STATIC_LIBRARIES := libhugin liblensfun libboost_filesystem-gcc-mt-1_53 \
 
 LOCAL_MODULE := pto_gen
 
-LOCAL_NDK_STL_VARIANT := c++_static
+LOCAL_NDK_STL_VARIANT := gnustl_static
 
 LOCAL_CFLAGS := -O3 -fexceptions -frtti
 
@@ -185,7 +185,7 @@ LOCAL_STATIC_LIBRARIES := libhugin libboost_filesystem-gcc-mt-1_53 \
 
 LOCAL_MODULE := pto_var
 
-LOCAL_NDK_STL_VARIANT := c++_static
+LOCAL_NDK_STL_VARIANT := gnustl_static
 
 LOCAL_CFLAGS := -O3 -fexceptions -frtti
 
@@ -218,7 +218,7 @@ LOCAL_STATIC_LIBRARIES := libhugin liblensfun libboost_filesystem-gcc-mt-1_53 \
 
 LOCAL_MODULE := nona
 
-LOCAL_NDK_STL_VARIANT := c++_static
+LOCAL_NDK_STL_VARIANT := gnustl_static
 
 LOCAL_CFLAGS := -O3 -fexceptions -frtti
 
@@ -251,7 +251,7 @@ LOCAL_STATIC_LIBRARIES := libhugin liblensfun libboost_filesystem-gcc-mt-1_53 \
 
 LOCAL_MODULE := align_image_stack
 
-LOCAL_NDK_STL_VARIANT := c++_static
+LOCAL_NDK_STL_VARIANT := gnustl_static
 
 LOCAL_CFLAGS := -O3 -fexceptions -frtti
 

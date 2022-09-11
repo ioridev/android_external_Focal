@@ -28,7 +28,7 @@ LOCAL_C_INCLUDES += \
 	external/jpeg
 endif
 
-LOCAL_NDK_STL_VARIANT := c++_static
+LOCAL_NDK_STL_VARIANT := gnustl_static
 
 LOCAL_CFLAGS := -O3 -Wno-sequence-point
 #LOCAL_CFLAGS += -DDEBUG

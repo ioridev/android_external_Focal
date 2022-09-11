@@ -33,10 +33,10 @@ GNUSTL_PATH := ../../prebuilts/ndk/current/sources/cxx-stl/gnu-libstdc++/libs/ar
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
-LOCAL_MODULE := libc++_static
+LOCAL_MODULE := libgnustl_static
 LOCAL_MODULE_CLASS := STATIC_LIBRARIES
 LOCAL_MODULE_SUFFIX := .a
-LOCAL_SRC_FILES := $(GNUSTL_PATH)/libc++_static.a
+LOCAL_SRC_FILES := $(GNUSTL_PATH)/libgnustl_static.a
 APP_ALLOW_MISSING_DEPS := true
 include $(LOCAL_PATH)/gnustl.mk
 include $(BUILD_PREBUILT)

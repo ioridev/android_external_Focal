@@ -20,7 +20,7 @@ LOCAL_C_INCLUDES := external/zlib \
 	$(LOCAL_PATH)/../glib/android \
 	$(LOCAL_PATH)/../glib/
 
-LOCAL_NDK_STL_VARIANT := c++_static
+LOCAL_NDK_STL_VARIANT := gnustl_static
 
 -include external/Focal/gnustl.mk
 

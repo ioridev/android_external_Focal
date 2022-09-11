@@ -77,7 +77,7 @@ LOCAL_SHARED_LIBRARIES := liblog
 
 LOCAL_ARM_MODE := arm
 
-LOCAL_NDK_STL_VARIANT := c++_static
+LOCAL_NDK_STL_VARIANT := gnustl_static
 
 LOCAL_MODULE_TAGS := optional
 LOCAL_SHARED_LIBRARIES := libxmptoolkit
@@ -107,7 +107,7 @@ LOCAL_SHARED_LIBRARIES := liblog
 
 LOCAL_ARM_MODE := arm
 
-LOCAL_NDK_STL_VARIANT := c++_static
+LOCAL_NDK_STL_VARIANT := gnustl_static
 
 LOCAL_MODULE_TAGS := optional
 LOCAL_SHARED_LIBRARIES := libxmptoolkit

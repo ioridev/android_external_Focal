@@ -40,7 +40,7 @@ LOCAL_CFLAGS := \
 	-DPCRE_STATIC \
 	-DPOSIX_MALLOC_THRESHOLD=10
 
-LOCAL_NDK_STL_VARIANT := c++_static
+LOCAL_NDK_STL_VARIANT := gnustl_static
 
 -include external/Focal/gnustl.mk
 include $(BUILD_STATIC_LIBRARY)
