@@ -71,7 +71,7 @@ LOCAL_SHARED_LIBRARIES := libvigraimpex libpano13 libexiv2
 LOCAL_CFLAGS := -DAVOID_TABLES  -O3 -fexceptions -fstrict-aliasing -fprefetch-loop-arrays \
 	-frtti -D__Ansi__ -Wno-return-type -Wno-non-virtual-dtor
 
-LOCAL_NDK_STL_VARIANT := gnustl_static
+LOCAL_NDK_STL_VARIANT := c++_static
 
 LOCAL_ARM_MODE := arm
 

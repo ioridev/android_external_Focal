@@ -5,7 +5,7 @@ LOCAL_CFLAGS :=
 
 LOCAL_MODULE := libpng_static
 
-LOCAL_NDK_STL_VARIANT := gnustl_static
+LOCAL_NDK_STL_VARIANT := c++_static
 
 LOCAL_SRC_FILES :=\
 	png.c \

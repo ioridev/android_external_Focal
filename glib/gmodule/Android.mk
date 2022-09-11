@@ -16,7 +16,7 @@ LOCAL_CFLAGS := \
 	-DG_LOG_DOMAIN=\"GModule\" \
 	-DG_DISABLE_DEPRECATED
 
-LOCAL_NDK_STL_VARIANT := gnustl_static
+LOCAL_NDK_STL_VARIANT := c++_static
 
 LOCAL_ARM_MODE := arm
 

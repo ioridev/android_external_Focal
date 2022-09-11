@@ -21,7 +21,7 @@ LOCAL_SRC_FILES := \
 	AreaFilter.c ImageMatchModel.c Transform.c DisplayImage.c ImageMap.c \
 	HashTable.c ArrayList.c Random.c SimpleMatrix.c Utils.c
 
-LOCAL_NDK_STL_VARIANT := gnustl_static
+LOCAL_NDK_STL_VARIANT := c++_static
 
 LOCAL_SHARED_LIBRARIES := libtiffdecoder libpano13
 

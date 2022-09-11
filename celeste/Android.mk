@@ -43,7 +43,7 @@ LOCAL_MODULE := celeste
 
 LOCAL_ARM_MODE := arm
 
-LOCAL_NDK_STL_VARIANT := gnustl_static
+LOCAL_NDK_STL_VARIANT := c++_static
 
 -include external/Focal/gnustl.mk
 

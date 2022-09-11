@@ -7,8 +7,8 @@ LOCAL_C_INCLUDES := \
 	prebuilts/ndk/current/sources/cxx-stl/gnu-libstdc++/libs/armeabi-v7a/include \
 	$(LOCAL_C_INCLUDES)
 
-ifeq ($(LOCAL_NDK_STL_VARIANT),gnustl_static)
-LOCAL_STATIC_LIBRARIES += libgnustl_static libsupc++
+ifeq ($(LOCAL_NDK_STL_VARIANT),c++_static)
+LOCAL_STATIC_LIBRARIES += libc++_static libsupc++
 endif
 ifeq ($(LOCAL_NDK_STL_VARIANT),gnustl_shared)
 LOCAL_STATIC_LIBRARIES += libsupc++

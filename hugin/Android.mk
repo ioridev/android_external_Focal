@@ -69,7 +69,7 @@ libhugin_SOURCES_DIST = \
 	nona/Stitcher3.cpp \
 	nona/Stitcher4.cpp
 
-LOCAL_NDK_STL_VARIANT := gnustl_static
+LOCAL_NDK_STL_VARIANT := c++_static
 
 LOCAL_SRC_FILES:= $(libhugin_SOURCES_DIST)
 
