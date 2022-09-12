@@ -4,7 +4,7 @@
 LOCAL_C_INCLUDES := \
 	bionic \
 	prebuilts/ndk/current/sources/cxx-stl/gnu-libstdc++/include \
-	prebuilts/ndk/current/sources/cxx-stl/gnu-libstdc++/libs/armeabi-v7a/include \
+	prebuilts/ndk/current/sources/cxx-stl/gnu-libstdc++/libs/arm64-v8a/include \
 	$(LOCAL_C_INCLUDES)
 
 ifeq ($(LOCAL_NDK_STL_VARIANT),c++_static)

@@ -28,7 +28,7 @@ endif
 ifneq ($(ANDROID_BUILD_TOP),)
 
 #TODO: Support architectures other than ARM
-GNUSTL_PATH := ../../prebuilts/ndk/current/sources/cxx-stl/gnu-libstdc++/libs/armeabi-v7a/
+GNUSTL_PATH := ../../prebuilts/ndk/current/sources/cxx-stl/gnu-libstdc++/libs/arm64-v8a/
 
 LOCAL_PATH := $(call my-dir)
 
