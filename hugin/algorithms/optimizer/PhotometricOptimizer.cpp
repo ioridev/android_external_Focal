@@ -16,16 +16,17 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
 #include "PhotometricOptimizer.h"
 
 #include <fstream>
-#include <levmar/lm.h>
+#include <foreign/levmar/levmar.h>
 #include <photometric/ResponseTransform.h>
+#include <algorithms/basic/LayerStacks.h>
 
 #ifdef DEBUG
 #define DEBUG_LOG_VIG 1
@@ -34,9 +35,6 @@
 
 namespace HuginBase {
     
-using namespace std;
-
-
 /** expects the abs(error) values */
 inline double weightHuber(double x, double sigma)
 {
@@ -51,7 +49,7 @@ inline double weightHuber(double x, double sigma)
 PhotometricOptimizer::OptimData::OptimData(const PanoramaData & pano, const OptimizeVector & optvars,
                                            const std::vector<vigra_ext::PointPairRGB> & data,
                                            double mEstimatorSigma, bool symmetric,
-                                           int maxIter, AppBase::ProgressReporter & progress)
+                                           int maxIter, AppBase::ProgressDisplay* progress)
   : m_pano(pano), m_data(data), huberSigma(mEstimatorSigma), symmetricError(symmetric),
     m_maxIter(maxIter), m_progress(progress)
 {
@@ -124,7 +122,7 @@ void PhotometricOptimizer::OptimData::ToX(double * x)
 {
     for (size_t i=0; i < m_vars.size(); i++)
     {
-        assert(m_vars[i].imgs.size() > 0);
+        assert(!m_vars[i].imgs.empty());
             // get corresponding image number
         unsigned j = *(m_vars[i].imgs.begin());
             // get value
@@ -139,7 +137,7 @@ void PhotometricOptimizer::OptimData::FromX(double * x)
     for (size_t i=0; i < m_vars.size(); i++)
     {
         // TODO: transform some variables, such as the vignetting center!
-        assert(m_vars[i].imgs.size() > 0);
+        assert(!m_vars[i].imgs.empty());
             // copy value int all images
         for (std::set<unsigned>::const_iterator it = m_vars[i].imgs.begin();
              it != m_vars[i].imgs.end(); ++it)
@@ -161,13 +159,13 @@ void PhotometricOptimizer::photometricError(double *p, double *x, int m, int n, 
 
     int xi = 0 ;
 
-    OptimData * dat = (OptimData *) data;
+    OptimData * dat = static_cast<OptimData*>(data);
     dat->FromX(p);
 #ifdef DEBUG_LOG_VIG
-    ostringstream oss;
+    std::ostringstream oss;
     oss << "vig_log_" << iter;
     iter++;
-    ofstream log(oss.str().c_str());
+    std::ofstream log(oss.str().c_str());
     log << "VIGparams = [";
     for (int i = 0; i < m; i++) {
         log << p[i] << " ";
@@ -205,7 +203,9 @@ void PhotometricOptimizer::photometricError(double *p, double *x, int m, int n, 
 		invResp[i].enforceMonotonicity();
     }
 
+#ifdef DEBUG
     double sqerror=0;
+#endif
     // loop over all points to calculate the error
 #ifdef DEBUG_LOG_VIG
     log << "VIGval = [ ";
@@ -225,10 +225,12 @@ void PhotometricOptimizer::photometricError(double *p, double *x, int m, int n, 
         vigra::RGBValue<double> i1ini2 = resp[it->imgNr2](l1, it->p2);
         vigra::RGBValue<double> error2 = it->i2 - i1ini2;
 
+#ifdef DEBUG
         for (int i=0; i < 3; i++) {
             sqerror += error[i]*error[i];
             sqerror += error2[i]*error2[i];
         }
+#endif
 
         // use huber robust estimator
         if (dat->huberSigma > 0) {
@@ -258,23 +260,25 @@ void PhotometricOptimizer::photometricError(double *p, double *x, int m, int n, 
     }
     log << " ]; " << std::endl;
 #endif
-
+#ifdef DEBUG
     DEBUG_DEBUG("squared error: " << sqerror);
+#endif
 }
 
 int PhotometricOptimizer::photometricVis(double *p, double *x, int m, int n, int iter, double sqerror, void * data)
 {
-    OptimData * dat = (OptimData *) data;
+    OptimData * dat = static_cast<OptimData*>(data);
     char tmp[200];
     tmp[199] = 0;
     double error = sqrt(sqerror/n)*255;
     snprintf(tmp,199, "Iteration: %d, error: %f", iter, error);
-    return dat->m_progress.increaseProgress(0.0, tmp) ? 1 : 0 ;
+    return dat->m_progress->updateDisplay(std::string(tmp)) ? 1 : 0 ;
 }
 
 void PhotometricOptimizer::optimizePhotometric(PanoramaData & pano, const OptimizeVector & vars,
                                                const std::vector<vigra_ext::PointPairRGB> & correspondences,
-                                               AppBase::ProgressReporter & progress,
+                                               const float imageStepSize,
+                                               AppBase::ProgressDisplay* progress,
                                                double & error)
 {
 
@@ -301,10 +305,8 @@ void PhotometricOptimizer::optimizePhotometric(PanoramaData & pano, const Optimi
     };
 
     int nMaxIter = 250;
-    OptimData data(pano, photometricVars, correspondences, 5/255.0, false, nMaxIter, progress);
+    OptimData data(pano, photometricVars, correspondences, 5 * imageStepSize, false, nMaxIter, progress);
 
-    int ret;
-    //double opts[LM_OPTS_SZ];
     double info[LM_INFO_SZ];
 
     // parameters
@@ -323,20 +325,19 @@ void PhotometricOptimizer::optimizePhotometric(PanoramaData & pano, const Optimi
     printf("\n");
 #endif
 
-    // covariance matrix at solution
-    vigra::DImage cov(m,m);
     // TODO: setup optimisation options with some good defaults.
     double optimOpts[5];
     
-    optimOpts[0] = 1E-03;  // init mu
+    optimOpts[0] = LM_INIT_MU;  // init mu
     // stop thresholds
-    optimOpts[1] = 1e-5;   // ||J^T e||_inf
-    optimOpts[2] = 1e-5;   // ||Dp||_2
-    optimOpts[3] = 1e-1;   // ||e||_2
+    optimOpts[1] = LM_STOP_THRESH;   // ||J^T e||_inf
+    optimOpts[2] = LM_STOP_THRESH;   // ||Dp||_2
+    optimOpts[3] = std::pow(imageStepSize*0.1f, 2);   // ||e||_2
     // difference mode
     optimOpts[4] = LM_DIFF_DELTA;
     
-    ret=dlevmar_dif(&photometricError, &photometricVis, &(p[0]), &(x[0]), m, n, nMaxIter, optimOpts, info, NULL, &(cov(0,0)), &data);  // no jacobian
+    dlevmar_dif(&photometricError, &photometricVis, &(p[0]), &(x[0]), m, n, nMaxIter, optimOpts, info, NULL,NULL, &data);  // no jacobian
+
     // copy to source images (data.m_imgs)
     data.FromX(p.begin());
     // calculate error at solution
@@ -349,7 +350,7 @@ void PhotometricOptimizer::optimizePhotometric(PanoramaData & pano, const Optimi
     error = sqrt(error/n);
 
 #ifdef DEBUG
-    printf("Levenberg-Marquardt returned %d in %g iter, reason %g\nSolution: ", ret, info[5], info[6]);
+    printf("Levenberg-Marquardt returned in %g iter, reason %g\nSolution: ", info[5], info[6]);
     for(int i=0; i<m; ++i)
         printf("%.7g ", p[i]);
     printf("\n\nMinimization info:\n");
@@ -364,105 +365,142 @@ void PhotometricOptimizer::optimizePhotometric(PanoramaData & pano, const Optimi
     }
 }
 
+bool IsHighVignetting(std::vector<double> vigCorr)
+{
+    SrcPanoImage srcImage;
+    srcImage.setRadialVigCorrCoeff(vigCorr);
+    srcImage.setSize(vigra::Size2D(500, 500));
+    Photometric::ResponseTransform<double> transform(srcImage);
+    for (size_t x = 0; x < 250; x += 10)
+    {
+        const double vigFactor = transform.calcVigFactor(hugin_utils::FDiff2D(x, x));
+        if (vigFactor < 0.2 || vigFactor > 1.1)
+        {
+            return true;
+        };
+    };
+    return false;
+};
+
+bool CheckStrangeWB(PanoramaData & pano)
+{
+    for(size_t i=0; i<pano.getNrOfImages(); i++)
+    {
+        if(pano.getImage(i).getWhiteBalanceBlue()>3)
+        {
+            return true;
+        };
+        if(pano.getImage(i).getWhiteBalanceRed()>3)
+        {
+            return true;
+        };
+    };
+    return false;
+};
+
 void SmartPhotometricOptimizer::smartOptimizePhotometric(PanoramaData & pano, PhotometricOptimizeMode mode,
                                                           const std::vector<vigra_ext::PointPairRGB> & correspondences,
-                                                          AppBase::ProgressReporter & progress,
+                                                          const float imageStepSize, 
+                                                          AppBase::ProgressDisplay* progress,
                                                           double & error)
 {
-    std::vector<SrcPanoImage> ret;
     PanoramaOptions opts = pano.getOptions();
-    if (mode == OPT_PHOTOMETRIC_LDR || mode == OPT_PHOTOMETRIC_LDR_WB) {
+    UIntSet images;
+    fill_set(images, 0, pano.getNrOfImages()-1);
+    std::vector<UIntSet> stacks = getHDRStacks(pano, images, pano.getOptions());
+    const bool singleStack = (stacks.size() == 1);
+
+    int vars = 0;
+    if (mode == OPT_PHOTOMETRIC_LDR || mode == OPT_PHOTOMETRIC_LDR_WB)
+    {
         // optimize exposure
-        int vars = OPT_EXP;
+        vars = OPT_EXP;
         optimizePhotometric(pano, 
                             createOptVars(pano, vars, opts.colorReferenceImage),
-                            correspondences, progress, error);
+                            correspondences, imageStepSize, progress, error);
+    };
 
-        // optimize vignetting & exposure
-        vars = OPT_EXP | OPT_VIG;
+    if(!singleStack)
+    {
+        //optimize vignetting only if there are more than 1 image stack
+        // for a single stack vignetting can't be calculated by this optimization
+        vars |= OPT_VIG;
+        VariableMapVector oldVars = pano.getVariables();
         optimizePhotometric(pano, 
                             createOptVars(pano, vars, opts.colorReferenceImage),
-                            correspondences, progress, error);
+                            correspondences, imageStepSize, progress, error);
+        // check if vignetting is plausible
+        if(IsHighVignetting(pano.getImage(0).getRadialVigCorrCoeff()))
+        {
+            vars &= ~OPT_VIG;
+            pano.updateVariables(oldVars);
+        };
+    };
 
-        if (mode == OPT_PHOTOMETRIC_LDR_WB) {
-            // optimize vignetting & exposure & wb & response
-            vars = OPT_EXP | OPT_VIG | OPT_RESP | OPT_WB;
-        } else {
-            vars = OPT_EXP | OPT_VIG | OPT_RESP;
-        }
-        // optimize vignetting & exposure & wb & response
-        optimizePhotometric(pano, 
-                            createOptVars(pano, vars, opts.colorReferenceImage),
-                            correspondences, progress, error);
-    } else if (mode == OPT_PHOTOMETRIC_HDR || mode == OPT_PHOTOMETRIC_HDR_WB) {
-        // optimize vignetting
-        int vars = OPT_VIG;
-        optimizePhotometric(pano, 
-                            createOptVars(pano, vars, opts.colorReferenceImage),
-                            correspondences, progress, error);
-
-        // optimize vignetting, wb and response
-        if (mode == OPT_PHOTOMETRIC_HDR_WB) {
-            vars = OPT_VIG | OPT_RESP | OPT_WB;
-        } else {
-            vars =  OPT_VIG | OPT_RESP;
-        }
-        optimizePhotometric(pano, 
-                            createOptVars(pano, vars, opts.colorReferenceImage),
-                            correspondences, progress, error);
-    } else {
-        assert(0 && "Unknown photometric optimisation mode");
-    }
-    // adjust 
+    // now take response curve into account
+    vars |= OPT_RESP;
+    // also WB if desired
+    if (mode == OPT_PHOTOMETRIC_LDR_WB || mode == OPT_PHOTOMETRIC_HDR_WB)
+    {
+        vars |= OPT_WB;
+    };
+    VariableMapVector oldVars = pano.getVariables();
+    optimizePhotometric(pano, 
+                        createOptVars(pano, vars, opts.colorReferenceImage),
+                        correspondences, imageStepSize, progress, error);
+    // now check the results
+    const bool hasHighVignetting = IsHighVignetting(pano.getImage(0).getRadialVigCorrCoeff());
+    // @TODO check also response curve, what parameters are considered invalid?
+    const bool hasHighWB = CheckStrangeWB(pano);
+    if(hasHighVignetting)
+    {
+        vars &= ~OPT_VIG;
+    };
+    if(hasHighWB)
+    {
+        vars &= ~OPT_WB;
+    };
+    if(hasHighVignetting || hasHighWB)
+    {
+        // we got strange results, optimize again with less parameters
+        pano.updateVariables(oldVars);
+        if(vars>0)
+        {
+            optimizePhotometric(pano, 
+                                createOptVars(pano, vars, opts.colorReferenceImage),
+                                correspondences, imageStepSize, progress, error);
+        };
+    };
 }
 
 
 bool PhotometricOptimizer::runAlgorithm()
 {
-    // is this correct? how much progress requierd?
-    AppBase::ProgressReporter* progRep = 
-        AppBase::ProgressReporterAdaptor::newProgressReporter(getProgressDisplay(), 0.0);    
-    
     optimizePhotometric(o_panorama, 
-                        o_vars, o_correspondences,
-                        *progRep, o_resultError);
-    
-    delete progRep;
+                        o_vars, o_correspondences, o_imageStepSize,
+                        getProgressDisplay(), o_resultError);
     
     // optimizePhotometric does not tell us if it's cancelled
-    if(hasProgressDisplay())
+    if (getProgressDisplay()->wasCancelled())
     {
-        if(getProgressDisplay()->wasCancelled())
-            cancelAlgorithm();
+        cancelAlgorithm();
     }
-
+    
     return wasCancelled(); // let's hope so.
 }
 
 bool SmartPhotometricOptimizer::runAlgorithm()
 {
-    AppBase::ProgressReporter* progRep;
-    
-    if(hasProgressDisplay()) {
-        // is this correct? how much progress requierd?
-        progRep = new AppBase::ProgressReporterAdaptor(*getProgressDisplay(), 0.0); 
-    } else {
-        progRep = new AppBase::DummyProgressReporter();
-    }
-    
     smartOptimizePhotometric(o_panorama,
                              o_optMode,
-                             o_correspondences,
-                             *progRep, o_resultError);
-    
-    delete progRep;
+                             o_correspondences, o_imageStepSize,
+                             getProgressDisplay(), o_resultError);
     
     // smartOptimizePhotometric does not tell us if it's cancelled
-    if(hasProgressDisplay())
+    if (getProgressDisplay()->wasCancelled())
     {
-        if(getProgressDisplay()->wasCancelled())
-            cancelAlgorithm();
-    }
+        cancelAlgorithm();
+    };
     
     return !wasCancelled(); // let's hope so.
 }

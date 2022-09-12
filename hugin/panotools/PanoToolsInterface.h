@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -64,15 +64,15 @@ extern "C" {
 #undef __INTEL__
 #endif
 
-#include <panorama.h>
-#include <filter.h>
+#include <pano13/panorama.h>
+#include <pano13/filter.h>
 
 #ifdef __INTELMEMO__
 #define __INTEL__
 #undef __INTELMEMO__
 #endif
 
-#include <filter.h>
+#include <pano13/filter.h>
 
 // somehow these are still set after panorama.h has been included
 #undef DIFFERENCE

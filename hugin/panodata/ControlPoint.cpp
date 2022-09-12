@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -48,18 +48,10 @@ void ControlPoint::mirror()
     td = y1; y1 = y2 ; y2 = td;
 }
 
-
-std::string ControlPoint::modeNames[] = { "x_y", "x", "y" };
-
-const std::string& ControlPoint::getModeName(OptimizeMode mode) const
-{
-    return modeNames[mode];
-}
-
 const std::string ControlPoint::getCPString() const
 {
     std::ostringstream s;
-    s << modeNames[mode];
+    s << mode;
     if(image1Nr<=image2Nr)
     {
         s << " " << image1Nr << ": " << x1 << "," << y1 << "|" << image2Nr << ": " << x2 << "," <<y2;
@@ -70,13 +62,5 @@ const std::string ControlPoint::getCPString() const
     }
     return s.str();
 };
-
-#if 0
-ControlPoint::ControlPoint(Panorama & pano, const QDomNode & node)
-{
-    setFromXML(node,pano);
-}
-#endif
-    
 
 } // namespace

@@ -18,8 +18,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -42,8 +42,8 @@ class IMPEX CalculateOptimalScale : public PanoramaAlgorithm
 
     public:
         ///
-        CalculateOptimalScale(PanoramaData& panorama)
-         : PanoramaAlgorithm(panorama)
+        explicit CalculateOptimalScale(PanoramaData& panorama)
+            : PanoramaAlgorithm(panorama), o_optimalScale(0)
         {}
         
         ///
@@ -97,7 +97,7 @@ class SetWidthOptimal : public CalculateOptimalScale
 {
     public:
         ///
-        SetWidthOptimal(PanoramaData& panorama)
+        explicit SetWidthOptimal(PanoramaData& panorama)
          : CalculateOptimalScale(panorama)
         {}
 

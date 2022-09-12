@@ -18,23 +18,20 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
 #include "ComputeImageROI.h"
 
 #include <algorithm>
-#include <vigra/impex.hxx>
 #include <nona/RemappedPanoImage.h>
 #include <nona/RemappedPanoImage.h>
 
 
 
 namespace HuginBase {
-
-using namespace hugin_utils;
 
 /** calculate the outline of the image
  *
@@ -67,7 +64,7 @@ void estimateImageAlpha(const SrcPanoImage & src,
                        vigra::BImage & alpha,
                        double & scale)
 {
-    FDiff2D ul,lr;
+    hugin_utils::FDiff2D ul, lr;
     ul.x = DBL_MAX;
     ul.y = DBL_MAX;
     lr.x = -DBL_MAX;
@@ -98,7 +95,7 @@ void estimateImageAlpha(const SrcPanoImage & src,
     DEBUG_DEBUG("dest Sz: " << destSz);
     DEBUG_DEBUG("dest rect: " << destRect);
 
-    FDiff2D cropCenter;
+    hugin_utils::FDiff2D cropCenter;
     double radius2=0;
     if (src.getCropMode() == SrcPanoImage::CROP_CIRCLE) {
         cropCenter.x = src.getCropRect().left() + src.getCropRect().width()/2.0;
@@ -156,18 +153,7 @@ void estimateImageAlpha(const SrcPanoImage & src,
         // that may be valid in the full resolution image
     vigra::discDilation(vigra::srcImageRange(img),
                         vigra::destImage(alpha), 1);
-    /*
-#ifdef DEBUG
-    {
-        vigra::ImageExportInfo exinfo( DEBUG_FILE_PREFIX "mask.png");
-        vigra::exportImage(srcImageRange(img), exinfo);
-    }
-    {
-        vigra::ImageExportInfo exinfo( DEBUG_FILE_PREFIX "mask_dilated.png");
-        vigra::exportImage(srcImageRange(alpha), exinfo);
-    }
-#endif
-    */
+
     ul.x = destRect.right();
     ul.y = destRect.bottom();
     lr.x = destRect.left();

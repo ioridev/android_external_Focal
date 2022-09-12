@@ -20,9 +20,7 @@
  *   GNU General Public License for more details.                          *
  *                                                                         *
  *   You should have received a copy of the GNU General Public License     *
- *   along with this program; if not, write to the                         *
- *   Free Software Foundation, Inc.,                                       *
- *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #include "vigra/edgedetection.hxx"
@@ -34,75 +32,68 @@
 #include <algorithms/optimizer/PTOptimizer.h>
 #include "algorithms/basic/CalculateCPStatistics.h"
 
-using namespace vigra;
-using namespace std;
-
 namespace HuginLines
 {
-template <class ImageType>
-double resize_image(ImageType& in, ImageType& out, int resize_dimension)
+
+template <class SrcImageIterator, class SrcAccessor, class DestImage>
+double resize_image(const vigra::triple<SrcImageIterator, SrcImageIterator, SrcAccessor> src, DestImage& dest, int resize_dimension)
 {
     // Re-size to max dimension
     double sizefactor=1.0;
-    if (in.width() > resize_dimension || in.height() > resize_dimension)
+    const vigra::Size2D inputSize(src.second - src.first);
+    if (inputSize.width() > resize_dimension || inputSize.height() > resize_dimension)
     {
         int nw;
         int nh;
-        if (in.width() >= in.height())
+        if (inputSize.width() >= inputSize.height())
         {
-            sizefactor = (double)resize_dimension/in.width();
+            sizefactor = (double)resize_dimension / inputSize.width();
             // calculate new image size
             nw = resize_dimension;
-            nh = static_cast<int>(0.5 + (sizefactor*in.height()));
+            nh = static_cast<int>(0.5 + (sizefactor*inputSize.height()));
         }
         else
         {
-            sizefactor = (double)resize_dimension/in.height();
+            sizefactor = (double)resize_dimension / inputSize.height();
             // calculate new image size
-            nw = static_cast<int>(0.5 + (sizefactor*in.width()));
+            nw = static_cast<int>(0.5 + (sizefactor*inputSize.width()));
             nh = resize_dimension;
         }
 
         // create an image of appropriate size
-        out.resize(nw, nh);
+        dest.resize(nw, nh);
         // resize the image, using a bi-cubic spline algorithm
-        resizeImageNoInterpolation(srcImageRange(in),destImageRange(out));
+        resizeImageNoInterpolation(src, destImageRange(dest));
     }
     else
     {
-        out.resize(in.size());
-        copyImage(srcImageRange(in),destImage(out));
+        dest.resize(inputSize);
+        copyImage(src, destImage(dest));
     };
     return 1.0/sizefactor;
 }
 
-vigra::BImage* detectEdges(UInt8RGBImage input,double scale,double threshold,unsigned int resize_dimension, double& size_factor)
+vigra::BImage* detectEdges(const vigra::UInt8RGBImage& input, const double scale, const double threshold, const unsigned int resize_dimension, double& size_factor)
 {
     // Resize image
-    UInt8RGBImage scaled;
-    size_factor=resize_image(input, scaled, resize_dimension);
-    input.resize(0,0);
-
-    // Convert to greyscale
-    BImage grey(scaled.width(), scaled.height());
-    copyImage(srcImageRange(scaled, RGBToGrayAccessor<RGBValue<UInt8> >()), destImage(grey));
+    vigra::UInt8Image scaled;
+    size_factor = resize_image(vigra::srcImageRange(input, vigra::RGBToGrayAccessor<vigra::RGBValue<vigra::UInt8> >()), scaled, resize_dimension);
 
     // Run Canny edge detector
-    BImage* image=new BImage(grey.width(), grey.height(), 255);
-    cannyEdgeImage(srcImageRange(grey), destImage(*image), scale, threshold, 0);
+    vigra::BImage* image = new vigra::BImage(scaled.width(), scaled.height(), 255);
+    vigra::cannyEdgeImage(vigra::srcImageRange(scaled), vigra::destImage(*image), scale, threshold, 0);
     return image;
 };
 
-vigra::BImage* detectEdges(BImage input,double scale,double threshold,unsigned int resize_dimension, double& size_factor)
+vigra::BImage* detectEdges(const vigra::BImage& input, const double scale, const double threshold, const unsigned int resize_dimension, double& size_factor)
 {
     // Resize image
-    UInt8Image scaled;
-    size_factor=resize_image(input, scaled, resize_dimension);
-    input.resize(0,0);
+    vigra::UInt8Image scaled;
+    size_factor=resize_image(vigra::srcImageRange(input), scaled, resize_dimension);
 
     // Run Canny edge detector
-    BImage* image=new BImage(scaled.width(), scaled.height(), 255);
-    cannyEdgeImage(srcImageRange(scaled), destImage(*image), scale, threshold, 0);
+    vigra::BImage* image = new vigra::BImage(scaled.width(), scaled.height(), 255);
+    vigra::cannyEdgeImage(vigra::srcImageRange(scaled), vigra::destImage(*image), scale, threshold, 0);
     return image;
 };
 
@@ -129,9 +120,9 @@ Lines findLines(vigra::BImage& edge, double length_threshold, double focal_lengt
     int lmin = int(sqrt(min_line_length_squared));
     double flpix=calculate_focal_length_pixels(focal_length,crop_factor,edge.width(),edge.height());
 
-    BImage lineImage = edgeMap2linePts(edge);
+    vigra::BImage lineImage = edgeMap2linePts(edge);
     Lines lines;
-    int nlines = linePts2lineList( lineImage, lmin, flpix, lines );
+    linePts2lineList( lineImage, lmin, flpix, lines );
 
     return lines;
 };
@@ -147,7 +138,7 @@ void ScaleLines(Lines& lines,const double scale)
     };
 };
 
-HuginBase::CPVector GetControlPoints(const SingleLine line,const unsigned int imgNr, const unsigned int lineNr,const unsigned int numberOfCtrlPoints)
+HuginBase::CPVector GetControlPoints(const SingleLine& line,const unsigned int imgNr, const unsigned int lineNr,const unsigned int numberOfCtrlPoints)
 {
     HuginBase::CPVector cpv;
     double interval = (line.line.size()-1)/(1.0*numberOfCtrlPoints);
@@ -164,22 +155,80 @@ HuginBase::CPVector GetControlPoints(const SingleLine line,const unsigned int im
 
 #define MAX_RESIZE_DIM 1600
 
-struct VerticalLine
+//return footpoint of point p on line between point p1 and p2
+vigra::Point2D GetFootpoint(const vigra::Point2D& p, const vigra::Point2D& p1, const vigra::Point2D& p2, double& u)
 {
-    vigra::Point2D start;
-    vigra::Point2D end;
+    hugin_utils::FDiff2D diff = p2 - p1;
+    u = ((p.x - p1.x)*(p2.x - p1.x) + (p.y - p1.y)*(p2.y - p1.y)) / hugin_utils::sqr(hugin_utils::norm(diff));
+    diff *= u;
+    return vigra::Point2D(p1.x + diff.x, p1.y + diff.y);
+};
+
+vigra::Point2D GetFootpoint(const vigra::Point2D& p, const vigra::Point2D& p1, const vigra::Point2D& p2)
+{
+    double u;
+    return GetFootpoint(p, p1, p2, u);
+};
+
+class VerticalLine
+{
+public:
+    void SetStart(const vigra::Point2D point)
+    {
+        m_start = point;
+    };
+    void SetStart(const int x, const int y)
+    {
+        m_start = vigra::Point2D(x, y);
+    };
+    void SetEnd(const vigra::Point2D point)
+    {
+        m_end = point;
+    };
+    void SetEnd(const int x, const int y)
+    {
+        m_end = vigra::Point2D(x, y);
+    };
+    double GetLineLength() const
+    {
+        return (m_end - m_start).magnitude();
+    };
+    double GetEstimatedDistance(const VerticalLine& otherLine) const
+    {
+        auto getDist = [](const vigra::Point2D& p, const vigra::Point2D& p1, const vigra::Point2D& p2)->double
+        {
+            double t;
+            const vigra::Point2D endPoint = GetFootpoint(p, p1, p2, t);
+            if (-0.1 < t && t < 1.1)
+            {
+                return (endPoint - p).magnitude();
+            }
+            else
+            {
+                return DBL_MAX;
+            };
+        };
+        return std::min({getDist(otherLine.GetStart(), m_start, m_end), getDist(otherLine.GetEnd(), m_start, m_end),
+            getDist(m_start, otherLine.GetStart(), otherLine.GetEnd()), getDist(m_end, otherLine.GetStart(), otherLine.GetEnd())});
+    }
+    double GetAngle() const
+    {
+        return atan2(m_end.y - m_start.y, m_end.x - m_start.x);
+    };
+    const vigra::Point2D& GetStart() const
+    {
+        return m_start;
+    };
+    const vigra::Point2D& GetEnd() const
+    {
+        return m_end;
+    };
+private:
+    vigra::Point2D m_start;
+    vigra::Point2D m_end;
 };
 
 typedef std::vector<VerticalLine> VerticalLineVector;
-
-//return footpoint of point p on line between point p1 and p2
-vigra::Point2D GetFootpoint(vigra::Point2D p, vigra::Point2D p1, vigra::Point2D p2)
-{
-    hugin_utils::FDiff2D diff=p2-p1;
-    double u=((p.x-p1.x)*(p2.x-p1.x)+(p.y-p1.y)*(p2.y-p1.y))/hugin_utils::sqr(hugin_utils::norm(diff));
-    diff*=u;
-    return vigra::Point2D(p1.x+diff.x,p1.y+diff.y);
-};
 
 //linear fit of given line, returns endpoints of fitted line
 VerticalLine FitLine(SingleLine line)
@@ -197,13 +246,11 @@ VerticalLine FitLine(SingleLine line)
         s_xy+=(double)line.line[i].x*line.line[i].y/n;
         s_x2+=(double)line.line[i].x*line.line[i].x/n;
     };
-    if(abs(s_x2-s_x*s_x)<0.00001)
+    if(std::abs(s_x2-s_x*s_x)<0.00001)
     {
         //vertical line needs special treatment
-        vl.start.x=s_x;
-        vl.start.y=line.line[0].y;
-        vl.end.x=s_x;
-        vl.end.y=line.line[n-1].y;
+        vl.SetStart(s_x, line.line[0].y);
+        vl.SetEnd(s_x, line.line[n - 1].y);
     }
     else
     {
@@ -214,8 +261,8 @@ VerticalLine FitLine(SingleLine line)
         vigra::Point2D p1(0,offset);
         vigra::Point2D p2(100,100*slope+offset);
         //calculate footpoint of first and last point
-        vl.start=GetFootpoint(line.line[0],p1,p2);
-        vl.end=GetFootpoint(line.line[n-1],p1,p2);
+        vl.SetStart(GetFootpoint(line.line[0], p1, p2));
+        vl.SetEnd(GetFootpoint(line.line[n - 1], p1, p2));
     };
     return vl;
 };
@@ -225,19 +272,44 @@ VerticalLine FitLine(SingleLine line)
 VerticalLineVector FilterLines(Lines lines,double roll)
 {
     VerticalLineVector vertLines;
-    if(lines.size()>0)
+    if(!lines.empty())
     {
-        for(Lines::const_iterator it=lines.begin(); it!=lines.end(); it++)
+        for(Lines::const_iterator it=lines.begin(); it!=lines.end(); ++it)
         {
             if((*it).status==valid_line && (*it).line.size()>2)
             {
                 VerticalLine vl=FitLine(*it);
-                vigra::Diff2D diff=vl.end-vl.start;
+                const vigra::Diff2D diff = vl.GetEnd() - vl.GetStart();
+                // check that line is long enough
                 if(diff.magnitude()>20)
                 {
-                    if(abs((diff.x*cos(DEG_TO_RAD(roll))+diff.y*sin(DEG_TO_RAD(roll)))/diff.magnitude())<0.1)
+                    // now check angle with respect to roll angle, accept only deviation of 5° (sin 5°=0.1)
+                    if(std::abs((diff.x*cos(DEG_TO_RAD(roll))+diff.y*sin(DEG_TO_RAD(roll)))/diff.magnitude())<0.1)
                     {
-                        vertLines.push_back(vl);
+                        // check distance and angle to other lines
+                        bool distanceBig = true;
+                        for (auto& otherLine : vertLines)
+                        {
+                            // distance should be at least 80 pixel = 5 % from image width
+                            if (vl.GetEstimatedDistance(otherLine) < 80)
+                            {
+                                // now check if line are parallel = have the same angle (tan(3°)=0.05)
+                                if (std::abs(vl.GetAngle() - otherLine.GetAngle()) < 0.05)
+                                {
+                                    distanceBig = false;
+                                    // both lines are close to each other, keep only the longer one
+                                    if (vl.GetLineLength() > otherLine.GetLineLength())
+                                    {
+                                        otherLine = vl;
+                                    }
+                                    continue;
+                                };
+                            };
+                        }
+                        if (distanceBig)
+                        {
+                            vertLines.push_back(vl);
+                        };
                     };
                 };
             };
@@ -252,8 +324,24 @@ bool SortByError(const HuginBase::ControlPoint& cp1, const HuginBase::ControlPoi
     return cp1.error<cp2.error;
 };
 
+class InvertedMaskAccessor
+{
+public:
+    typedef vigra::UInt8 value_type;
+    template <class ITERATOR>
+    value_type operator()(ITERATOR const & i) const
+    {
+        return 255 - (*i);
+    }
+    template <class ITERATOR, class DIFFERENCE>
+    value_type operator()(ITERATOR const & i, DIFFERENCE d) const
+    {
+        return 255 - i[d];
+    }
+};
+
 template <class ImageType>
-HuginBase::CPVector _getVerticalLines(const HuginBase::Panorama& pano,const unsigned int imgNr,ImageType& image, const unsigned int nrLines)
+HuginBase::CPVector _getVerticalLines(const HuginBase::Panorama& pano,const unsigned int imgNr,ImageType& image, vigra::BImage& mask, const unsigned int nrLines)
 {
     HuginBase::CPVector verticalLines;
     HuginBase::CPVector detectedLines;
@@ -297,18 +385,38 @@ HuginBase::CPVector _getVerticalLines(const HuginBase::Panorama& pano,const unsi
         fitPano.run();
         opts.setHFOV(fitPano.getResultHorizontalFOV());
         opts.setHeight(hugin_utils::roundi(fitPano.getResultHeight()));
+        if (opts.getVFOV() > 100)
+        {
+            // limit vertical fov to 100 deg to prevent finding lines
+            // near nadir/zenit which are probably wrong with this simple
+            // line finding algorithmus
+            opts.setHeight(hugin_utils::roundi(opts.getHeight() * 90.0 / opts.getVFOV()));
+        };
         tempPano.setOptions(opts);
 
         //finally remap image
         HuginBase::Nona::RemappedPanoImage<ImageType,vigra::BImage>* remapped=new HuginBase::Nona::RemappedPanoImage<ImageType,vigra::BImage>;
-        AppBase::MultiProgressDisplay* progress=new AppBase::DummyMultiProgressDisplay();
+        AppBase::ProgressDisplay* progress=new AppBase::DummyProgressDisplay();
         remapped->setPanoImage(remappedImage,opts,opts.getROI());
-        remapped->remapImage(vigra::srcImageRange(image),vigra_ext::INTERP_CUBIC,*progress);
+        if (mask.size().area() > 0)
+        {
+            remapped->remapImage(vigra::srcImageRange(image), vigra::srcImage(mask), vigra_ext::INTERP_CUBIC, progress);
+        }
+        else
+        {
+            remapped->remapImage(vigra::srcImageRange(image), vigra_ext::INTERP_CUBIC, progress);
+        };
         ImageType remappedBitmap=remapped->m_image;
+        mask = remapped->m_mask;
         //detect edges
         edge=detectEdges(remappedBitmap,2,4,std::max(remappedBitmap.width(),remappedBitmap.height())+10,size_factor);
         delete remapped;
         delete progress;
+    };
+    // ignore all edges outside of masked areas
+    if (mask.size().area() > 0)
+    {
+        vigra::initImageIf(vigra::destImageRange(*edge), vigra::srcImage(mask, InvertedMaskAccessor()), vigra::UInt8(255));
     };
     //detect lines
     //we need the focal length
@@ -316,13 +424,14 @@ HuginBase::CPVector _getVerticalLines(const HuginBase::Panorama& pano,const unsi
     if(focalLength==0)
     {
         focalLength=HuginBase::SrcPanoImage::calcFocalLength(
-            srcImage.getProjection(),srcImage.getHFOV(),srcImage.getExifCropFactor(),srcImage.getSize());
+            srcImage.getProjection(),srcImage.getHFOV(),srcImage.getCropFactor(),srcImage.getSize());
     };
-    Lines foundLines=findLines(*edge,0.05,focalLength,srcImage.getExifCropFactor());
+    Lines foundLines=findLines(*edge,0.05,focalLength,srcImage.getCropFactor());
+    delete edge;
     //filter results
     VerticalLineVector filteredLines=FilterLines(foundLines,roll);
     //create control points
-    if(filteredLines.size()>0)
+    if(!filteredLines.empty())
     {
         //we need to transform the coordinates to image coordinates because the detection
         //worked on smaller images or in remapped image
@@ -339,22 +448,22 @@ HuginBase::CPVector _getVerticalLines(const HuginBase::Panorama& pano,const unsi
             cp.mode=HuginBase::ControlPoint::X;
             if(!needsRemap)
             {
-                cp.x1=filteredLines[i].start.x*size_factor;
-                cp.y1=filteredLines[i].start.y*size_factor;
-                cp.x2=filteredLines[i].end.x*size_factor;
-                cp.y2=filteredLines[i].end.y*size_factor;
+                cp.x1 = filteredLines[i].GetStart().x*size_factor;
+                cp.y1 = filteredLines[i].GetStart().y*size_factor;
+                cp.x2 = filteredLines[i].GetEnd().x*size_factor;
+                cp.y2 = filteredLines[i].GetEnd().y*size_factor;
             }
             else
             {
                 double xout;
                 double yout;
-                if(!transform.transformImgCoord(xout,yout,filteredLines[i].start.x,filteredLines[i].start.y))
+                if(!transform.transformImgCoord(xout,yout,filteredLines[i].GetStart().x,filteredLines[i].GetStart().y))
                 {
                     continue;
                 };
                 cp.x1=xout;
                 cp.y1=yout;
-                if(!transform.transformImgCoord(xout,yout,filteredLines[i].end.x,filteredLines[i].end.y))
+                if(!transform.transformImgCoord(xout,yout,filteredLines[i].GetEnd().x,filteredLines[i].GetEnd().y))
                 {
                     continue;
                 };
@@ -394,7 +503,11 @@ HuginBase::CPVector _getVerticalLines(const HuginBase::Panorama& pano,const unsi
             imgopt.insert("r");
             optVec.push_back(imgopt);
             tempPano.setOptimizeVector(optVec);
-            HuginBase::PTools::optimize(tempPano);
+            // ARGH the panotools optimizer uses global variables is not reentrant
+#pragma omp critical
+            {
+                HuginBase::PTools::optimize(tempPano);
+            }
             //first filter stage
             //we disregard all lines with big error
             //calculate statistic and determine limit
@@ -415,7 +528,7 @@ HuginBase::CPVector _getVerticalLines(const HuginBase::Panorama& pano,const unsi
                     maxError=std::max(detectedLines[i].error,maxError);
                 };
             };
-            if(detectedLines.size()>0 && maxError>0) //security check, should never be false
+            if(!detectedLines.empty() && maxError>0) //security check, should never be false
             {
                 //now keep only the best nrLines lines
                 //we are using error and line length as figure of merrit
@@ -444,7 +557,7 @@ HuginBase::CPVector _getVerticalLines(const HuginBase::Panorama& pano,const unsi
             if(detectedLines.size()==1)
             {
                 vigra::Diff2D diff((double)detectedLines[0].x2-detectedLines[0].x1,(double)detectedLines[0].y2-detectedLines[0].y1);
-                if(abs((diff.x*cos(DEG_TO_RAD(roll))+diff.y*sin(DEG_TO_RAD(roll)))/diff.magnitude())<0.05)
+                if(std::abs((diff.x*cos(DEG_TO_RAD(roll))+diff.y*sin(DEG_TO_RAD(roll)))/diff.magnitude())<0.05)
                 {
                     HuginBase::ControlPoint cp=detectedLines[0];
                     cp.image1Nr=imgNr;
@@ -458,14 +571,14 @@ HuginBase::CPVector _getVerticalLines(const HuginBase::Panorama& pano,const unsi
     return verticalLines;
 };
 
-HuginBase::CPVector GetVerticalLines(const HuginBase::Panorama& pano,const unsigned int imgNr,vigra::UInt8RGBImage& image, const unsigned int nrLines)
+HuginBase::CPVector GetVerticalLines(const HuginBase::Panorama& pano,const unsigned int imgNr,vigra::UInt8RGBImage& image, vigra::BImage& mask, const unsigned int nrLines)
 {
-    return _getVerticalLines(pano, imgNr, image, nrLines);
+    return _getVerticalLines(pano, imgNr, image, mask, nrLines);
 };
 
-HuginBase::CPVector GetVerticalLines(const HuginBase::Panorama& pano,const unsigned int imgNr,vigra::BImage& image, const unsigned int nrLines)
+HuginBase::CPVector GetVerticalLines(const HuginBase::Panorama& pano,const unsigned int imgNr,vigra::BImage& image, vigra::BImage& mask, const unsigned int nrLines)
 {
-    return _getVerticalLines(pano, imgNr, image, nrLines);
+    return _getVerticalLines(pano, imgNr, image, mask, nrLines);
 };
 
 }; //namespace

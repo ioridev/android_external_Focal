@@ -34,22 +34,14 @@
 
 namespace HuginBase {
     
-    using namespace AppBase;
-    using namespace Nona;
-    
-    
     bool NonaFileOutputStitcher::runStitcher()
     {
-        MultiProgressDisplay* progDisp
-            = MultiProgressDisplayAdaptor::newMultiProgressDisplay(getProgressDisplay());
-        
-        stitchPanorama(o_panorama,
+        Nona::stitchPanorama(o_panorama,
                        o_panoramaOptions,
-                       *progDisp,
+                       getProgressDisplay(),
                        o_filename,
-                       o_usedImages);
-           
-        delete progDisp;
+                       o_usedImages,
+                       m_advOptions);
         
         return true;
     }

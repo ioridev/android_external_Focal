@@ -18,8 +18,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -29,6 +29,7 @@
 #include <hugin_math/hugin_math.h>
 #include <vigra/rgbvalue.hxx>
 #include <vigra/transformimage.hxx>
+#include <vigra/codec.hxx>
 #include <cmath>
 
 namespace vigra {
@@ -45,13 +46,17 @@ namespace vigra_ext {
 
 /** Traits to define the maximum value for all types.
  *  The case of float and double differs from vigra::NumericTraits::max() */
-#define LUT_TRAITS(T1,S) \
+#define LUT_TRAITS(T1, Smin, Smax) \
 template<> \
 struct LUTTraits<T1> \
 { \
     static T1 max() \
 { \
-    return S; \
+    return Smax; \
+} \
+    static T1 min() \
+{ \
+    return Smin; \
 } \
 }; \
 template<> \
@@ -59,21 +64,25 @@ struct LUTTraits<vigra::RGBValue<T1> > \
 { \
     static T1 max() \
 { \
-    return S; \
+    return Smax; \
+} \
+    static T1 min() \
+{ \
+    return Smin; \
 } \
 };
 
     template <class T1>
     struct LUTTraits;
 
-    LUT_TRAITS(unsigned char, UCHAR_MAX);
-    LUT_TRAITS(signed char, SCHAR_MAX);
-    LUT_TRAITS(unsigned short, USHRT_MAX);
-    LUT_TRAITS(signed short, SHRT_MAX);
-    LUT_TRAITS(unsigned int, UINT_MAX);
-    LUT_TRAITS(signed int, INT_MAX);
-    LUT_TRAITS(float, 1.0);
-    LUT_TRAITS(double, 1.0);
+    LUT_TRAITS(unsigned char, 0, UCHAR_MAX);
+    LUT_TRAITS(signed char, SCHAR_MIN, SCHAR_MAX);
+    LUT_TRAITS(unsigned short, 0, USHRT_MAX);
+    LUT_TRAITS(signed short, SHRT_MIN, SHRT_MAX);
+    LUT_TRAITS(unsigned int, 0, UINT_MAX);
+    LUT_TRAITS(signed int, INT_MIN, INT_MAX);
+    LUT_TRAITS(float, 0.0f, 1.0f);
+    LUT_TRAITS(double, 0.0, 1.0);
 
 #undef LUT_TRAITS
 
@@ -276,7 +285,7 @@ inline
 V
 getMinComponent(vigra::RGBValue<V> const & v)
 {
-    return std::max(std::max(v.red(), v.green()), v.blue());
+    return std::min(std::min(v.red(), v.green()), v.blue());
 }
 
 /** get the maximum component of a vector (also works for single pixel types...) */
@@ -288,6 +297,104 @@ getMinComponent(V v)
     return v;
 }
 
+template <class VALUETYPE>
+class FindComponentsMinMax
+{
+public:
+    /** the functor's argument type */
+    typedef VALUETYPE argument_type;
+    /** the functor's result type */
+    typedef VALUETYPE result_type;
+    /** \deprecated use argument_type */
+    typedef VALUETYPE value_type;
+
+    /** init min and max */
+    FindComponentsMinMax() : min(vigra::NumericTraits<value_type>::max()), max(vigra::NumericTraits<value_type>::min()), count(0)
+    {}
+
+    /** (re-)init functor (clear min, max)  */
+    void reset()
+    {
+        count = 0;
+    }
+
+    /** update min and max */
+    void operator()(argument_type const & v)
+    {
+        if (count)
+        {
+            if (v < min) min = v;
+            if (max < v) max = v;
+        }
+        else
+        {
+            min = v;
+            max = v;
+        }
+        ++count;
+    }
+
+    /** update min and max with components of RGBValue<VALUETYPE> */
+    void operator()(vigra::RGBValue<VALUETYPE> const & v)
+    {
+        const VALUETYPE vMax = vigra_ext::getMaxComponent(v);
+        const VALUETYPE vMin = vigra_ext::getMinComponent(v);
+        if (count)
+        {
+            if (vMin < min)
+            {
+                min = vMin;
+            };
+            if (vMax > max)
+            {
+                max = vMax;
+            };
+        }
+        else
+        {
+            min = vMin;
+            max = vMax;
+        }
+        ++count;
+    }
+
+    /** the current min */
+    VALUETYPE min;
+    /** the current max */
+    VALUETYPE max;
+    /** the number of values processed so far */
+    unsigned int count;
+};
+
+template<class ImgIter, class ImgAccessor, class AlphaIter, class AlphaAccessor>
+void applyExposureClipMask(vigra::triple<ImgIter, ImgIter, ImgAccessor> image, vigra::triple<AlphaIter, AlphaIter, AlphaAccessor> mask, double lowerLimit, double upperLimit)
+{
+    typedef typename ImgAccessor::value_type ImageValueType;
+    vigra_precondition((image.second - image.first) == (mask.second - mask.first), "applyExposureMask: image and mask have different sizes");
+    const vigra::Diff2D imgSize = image.second - image.first;
+    const double LowerLimit = lowerLimit * LUTTraits<ImageValueType>::max();
+    const double UpperLimit = upperLimit * LUTTraits<ImageValueType>::max();
+
+    // create dest y iterator
+    ImgIter yd(image.first);
+    AlphaIter ymd(mask.first);
+    // loop over the image and transform
+    for (int y = 0; y < imgSize.y; ++y, ++yd.y, ++ymd.y)
+    {
+        // create x iterators
+        ImgIter xd(yd);
+        AlphaIter xmd(ymd);
+        for (int x = 0; x < imgSize.x; ++x, ++xd.x, ++xmd.x)
+        {
+            const double minVal = vigra_ext::getMinComponent(*xd);
+            const double maxVal = vigra_ext::getMaxComponent(*xd);
+            if (minVal < LowerLimit || maxVal > UpperLimit)
+            {
+                *xmd = 0;
+            };
+        }
+    }
+}
 
 /** count pixels that are > 0 in both images */
 struct OverlapSizeCounter
@@ -494,8 +601,8 @@ struct ApplyLogFunctor
     ApplyLogFunctor(float min_, float max_)
     {
         // protect against zeros in image data
-        if (min_ == 0.0f) {
-            min_ = 1e-5;
+        if (min_ <= 0.0f) {
+            min_ = 1e-5f;
         }
         minv = std::log10(min_);
         maxv = std::log10(max_);
@@ -545,7 +652,7 @@ struct ApplyGammaFunctor
     {
         typedef vigra::NumericTraits< vigra::RGBValue<TOut> >  DestTraits;
         typedef vigra::NumericTraits< vigra::RGBValue<TIn> >  SrcTraits;
-        return DestTraits::fromRealPromote(pow((SrcTraits::toRealPromote(v)+(-minv))/scale, gamma)*255);
+        return DestTraits::fromRealPromote(vigra_ext::pow((SrcTraits::toRealPromote(v)+(-minv))/scale, gamma)*255);
     }
 };
 
@@ -645,6 +752,28 @@ transformImageSpatial(vigra::triple<SrcImageIterator, SrcImageIterator, SrcAcces
     transformImageSpatial(src.first, src.second, src.third, dest.first, dest.second, f, ul);
 }
 
+/** converts to given image to fit into 0..255 */
+template <class ImageType>
+void ConvertTo8Bit(ImageType& image)
+{
+    typedef vigra::NumericTraits<typename ImageType::PixelType> DestTraits;
+    double maxVal = vigra::NumericTraits<typename DestTraits::ValueType>::max();
+    double minVal = vigra::NumericTraits<typename DestTraits::ValueType>::min();
+    const std::string pixelType = vigra::TypeAsString<typename DestTraits::ValueType>::result();
+    int mapping = 0;
+    if (pixelType == "FLOAT" || pixelType == "DOUBLE")
+    {
+        vigra::FindMinMax<typename ImageType::PixelType> minmax;
+        vigra::inspectImage(srcImageRange(image), minmax);
+        minVal = vigra_ext::getMaxComponent(minmax.min);
+        maxVal = vigra_ext::getMaxComponent(minmax.max);
+        mapping = 1;
+    }
+    if (minVal != 0 || maxVal != 255)
+    {
+        vigra_ext::applyMapping(srcImageRange(image), destImage(image), minVal, maxVal, mapping);
+    };
+};
 
 } // namespace
 

@@ -19,26 +19,21 @@
  *  General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
 #include "SpaceTransform.h"
-
-
-using namespace std;
-using namespace vigra;
-using namespace hugin_utils;
-
 
 namespace HuginBase {
 namespace Nona {
         
 
 /// ctor
-SpaceTransform::SpaceTransform()
+SpaceTransform::SpaceTransform() : m_srcTX(0), m_srcTY(0), m_destTX(0), m_destTY(0)
 {
+
 	m_Initialized = false;
 }
 
@@ -108,7 +103,7 @@ void inv_radial( double x_dest, double y_dest, double* x_src, double* y_src, con
 	rs	= rd;				
 	f 	= (((params.var3 * rs + params.var2) * rs + params.var1) * rs + params.var0) * rs;
 
-	while( abs(f - rd) > R_EPS && iter++ < MAXITER )
+	while( std::abs(f - rd) > R_EPS && iter++ < MAXITER )
 	{
 		rs = rs - (f - rd) / ((( 4 * params.var3 * rs + 3 * params.var2) * rs  +
 						  2 * params.var1) * rs + params.var0);
@@ -682,7 +677,7 @@ unsigned char radlum( unsigned char srcPixel, int xc, int yc, void *params )
 
 
 // Get smallest positive (non-zero) root of polynomial with degree deg and
-// (n+1) real coefficients p[i]. Return it, or 1000.0 if none exists or error occured
+// (n+1) real coefficients p[i]. Return it, or 1000.0 if none exists or error occurred
 // Changed to only allow degree 3
 #if 0
 double smallestRoot( double *p )
@@ -966,7 +961,7 @@ double estScaleFactorForFullFrame(const SrcPanoImage & src)
 }
 
 
-double estRadialScaleCrop(const vector<double> &coeff, int width, int height)
+double estRadialScaleCrop(const std::vector<double> &coeff, int width, int height)
 {
     double r_test[4];
     double p, r;
@@ -1048,11 +1043,11 @@ double estRadialScaleCrop(const vector<double> &coeff, int width, int height)
 
 
 /** Create a transform stack for radial distortion correction only */
-void SpaceTransform::InitRadialCorrect(const Size2D & sz, const vector<double> & radDist, 
-                                 const FDiff2D & centerShift)
+void SpaceTransform::InitRadialCorrect(const vigra::Size2D & sz, const std::vector<double> & radDist, 
+                                 const hugin_utils::FDiff2D & centerShift)
 {
     double mprad[6];
-
+    
 //    double  imwidth = src.getSize().x;
 //    double  imheight= src.getSize().y;
 
@@ -1202,15 +1197,15 @@ void SpaceTransform::InitRadialCorrect(const SrcPanoImage & src, int channel)
   */
 void SpaceTransform::Init(
     const SrcPanoImage & image,
-    const Diff2D &destSize,
+    const vigra::Diff2D &destSize,
     PanoramaOptions::ProjectionFormat destProj,
     double destHFOV )
 {
-    int 	i;
+    //int 	i;
     double	a, b;
     Matrix3 mpmt;
-    double  mpdistance, mpscale[2], mpshear[2], mprot[2], mprad[6];
-    // double mpperspect[2];
+    double  mpdistance, mpscale[2], mprot[2], mprad[6];
+    // double mpshear[2], mpperspect[2];
     double  mphorizontal, mpvertical;
 
     double  imhfov  = image.getHFOV();
@@ -1272,8 +1267,8 @@ void SpaceTransform::Init(
         }
     }
     mpscale[1]		= mpscale[0];
-    mpshear[0]		= img / imheight; // TODO : im->cP.shear_x / imheight;
-    mpshear[1]		= imt / imwidth; // TODO : im->cP.shear_y / imwidth;
+    // mpshear[0]		= img / imheight; // TODO : im->cP.shear_x / imheight;
+    // mpshear[1]		= imt / imwidth; // TODO : im->cP.shear_y / imwidth;
     mprot[0]		= mpdistance * PI;								// 180 in screenpoints
     mprot[1]		= -imyaw *  mpdistance * PI / 180.0; 			//    rotation angle in screenpoints
 
@@ -1300,7 +1295,7 @@ void SpaceTransform::Init(
 	//mp->horizontal 	= im->cP.horizontal_params[color];
 	//mp->vertical 	= im->cP.vertical_params[color];
 	
-    i = 0;
+    //i = 0;
 
     switch (destProj)
     {
@@ -1413,14 +1408,14 @@ void SpaceTransform::Init(
 
 void SpaceTransform::InitInv(
     const SrcPanoImage & image,
-    const Diff2D &destSize,
+    const vigra::Diff2D &destSize,
     PanoramaOptions::ProjectionFormat destProj,
     double destHFOV )
 {
     double	a, b;
     Matrix3 mpmt;
-    double  mpdistance, mpscale[2], mpshear[2], mprot[2], mprad[6];
-//    double  mpperspect[2];
+    double  mpdistance, mpscale[2], mprot[2], mprad[6];
+//    double  mpshear[2], mpperspect[2];
     double mphorizontal, mpvertical;
 
     double  imhfov  = image.getHFOV();
@@ -1480,8 +1475,8 @@ void SpaceTransform::InitInv(
             mpscale[0] = ( pnhfov/imhfov ) * ( imwidth/pnwidth );
         }
     }
-    mpshear[0] 	= 0.0f; // TODO -im->cP.shear_x / im->height;
-    mpshear[1] 	= 0.0f; // -im->cP.shear_y / im->width;
+    // mpshear[0] 	= 0.0f; // TODO -im->cP.shear_x / im->height;
+    // mpshear[1] 	= 0.0f; // -im->cP.shear_y / im->width;
 	
     mpscale[0] = 1.0 / mpscale[0];
     mpscale[1] = mpscale[0];
@@ -1666,7 +1661,7 @@ void SpaceTransform::createTransform(const vigra::Diff2D & srcSize,
     SrcPanoImage src_image;
     src_image.setSize(vigra::Size2D(srcSize.x, srcSize.y));
     src_image.setProjection((SrcPanoImage::Projection)srcProj);
-    for (VariableMap::const_iterator i = srcVars.begin(); i != srcVars.end(); i++)
+    for (VariableMap::const_iterator i = srcVars.begin(); i != srcVars.end(); ++i)
     {
         src_image.setVar((*i).first, (*i).second.getValue());
     }
@@ -1686,7 +1681,7 @@ void SpaceTransform::createInvTransform(const vigra::Diff2D & srcSize,
     SrcPanoImage src_image;
     src_image.setSize(vigra::Size2D(srcSize.x, srcSize.y));
     src_image.setProjection((SrcPanoImage::Projection)srcProj);
-    for (VariableMap::const_iterator i = srcVars.begin(); i != srcVars.end(); i++)
+    for (VariableMap::const_iterator i = srcVars.begin(); i != srcVars.end(); ++i)
     {
         src_image.setVar((*i).first, (*i).second.getValue());
     }
@@ -1695,14 +1690,14 @@ void SpaceTransform::createInvTransform(const vigra::Diff2D & srcSize,
 
 
 //
-bool SpaceTransform::transform(FDiff2D& dest, const FDiff2D & src) const
+bool SpaceTransform::transform(hugin_utils::FDiff2D& dest, const hugin_utils::FDiff2D & src) const
 {
 	double xd = src.x, yd = src.y;
-	vector<fDescription>::const_iterator tI;
+	std::vector<fDescription>::const_iterator tI;
 	
     dest.x = xd;
     dest.y = yd;
-    for (tI = m_Stack.begin(); tI != m_Stack.end(); tI++)
+    for (tI = m_Stack.begin(); tI != m_Stack.end(); ++tI)
     {
         (tI->func)( xd, yd, &dest.x, &dest.y, tI->param );
         xd = dest.x;	
@@ -1714,7 +1709,7 @@ bool SpaceTransform::transform(FDiff2D& dest, const FDiff2D & src) const
 //
 bool SpaceTransform::transformImgCoord(double & x_dest, double & y_dest, double x_src, double y_src) const
 {
-	FDiff2D dest, src;
+    hugin_utils::FDiff2D dest, src;
 	src.x = x_src - m_srcTX + 0.5;
 	src.y = y_src - m_srcTY + 0.5;
 	transform( dest, src );

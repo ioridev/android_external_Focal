@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -149,7 +149,7 @@ struct LUTFunctor
     lut_type applyLutInteger(VT1 v) const
     {
         // lut type.
-        assert(m_lut.size() > 0);
+        assert(!m_lut.empty());
         if (m_lut.size() == LUTTraits<VT1>::max()) {
             return m_lut[v];
         } else {
@@ -169,7 +169,7 @@ struct LUTFunctor
 
     lut_type applyLutFloat(double v) const
     {
-        assert(m_lut.size() > 0);
+        assert(!m_lut.empty());
         if (v > 1) return m_lut.back();
         if (v < 0) return 0;
         double x=v*(m_lut.size()-1);
@@ -197,7 +197,7 @@ struct LUTFunctor
     // lookup vector types (the lut needs to be long enought!)
     vigra::RGBValue<lut_type>  applyVector(vigra::RGBValue<VT1> v, vigra::VigraTrueType) const
     {
-        assert(m_lut.size() > 0);
+        assert(!m_lut.empty());
         vigra::RGBValue<lut_type> ret;
         for (size_t i=0; i < v.size(); i++) {
             ret[i] = applyLutInteger(v[i]);
@@ -274,7 +274,7 @@ struct InvLUTFunctor
     // assume float is scaled 0..1
     lut_type applyLutFloat(lut_type v) const
     {
-        assert(m_lut.size() > 0);
+        assert(!m_lut.empty());
         if (v >= m_lut.back()) return m_lut.back();
         if (v < m_lut[0]) return 0;
 

@@ -1,9 +1,8 @@
 // -*- c-basic-offset: 4 -*-
-/** @file lut.h
+/** @file hugin_math.h
  *
- *  @author Pablo d'Angelo <pablo.dangelo@web.de>
- *
- *  $Id$
+ *  @brief misc math function & classes used by other parts
+ *         of the program
  *
  *  This is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU General Public
@@ -16,24 +15,27 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
-#ifndef _VIGRA_EXT_RESPONSETRANSFORM_H
-#define _VIGRA_EXT_RESPONSETRANSFORM_H
+#include "hugin_math.h"
+#include "hugin_utils/utils.h"
 
-#include <photometric/ResponseTransform.h>
+ /** namespace for various utils */
+namespace hugin_utils
+{
+    int _gcd(int a, int b)
+    {
+        // calculate greated common divisor using Euclidean algorithm
+        return b == 0 ? a : _gcd(b, a % b);
+    }
 
-// does not work on MSVC
-//#warning "Deprecated!"
+    int gcd(int a, int b)
+    {
+        // enforce that both arguments are positive
+        return _gcd(abs(a), abs(b));
+    }
 
-namespace vigra_ext {
-
-    using HuginBase::Photometric::ResponseTransform;
-    using HuginBase::Photometric::InvResponseTransform;
-
-}
-
-#endif //_H
+} // namespace

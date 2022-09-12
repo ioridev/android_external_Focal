@@ -20,12 +20,11 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
-#include <boost/foreach.hpp>
 #include "PTOptimizer.h"
 
 #include "ImageGraph.h"
@@ -35,16 +34,19 @@
 #include <algorithms/basic/CalculateCPStatistics.h>
 #include <algorithms/nona/CenterHorizontally.h>
 #include <algorithms/nona/CalculateFOV.h>
+#include <algorithms/basic/LayerStacks.h>
 #include <vigra_ext/ransac.h>
 
 #if DEBUG
 #include <fstream>
+// pano13 include <Carbon/Carbon.h> -> /usr/include/MacTypes.h, causing a name collision with boost
+#if defined(__APPLE__) && defined(nil) 
+#undef nil
+#endif
 #include <boost/graph/graphviz.hpp>
 #endif
 
 namespace HuginBase {
-
-using namespace hugin_utils;
 
 bool PTOptimizer::runAlgorithm()
 {
@@ -93,11 +95,14 @@ public:
 	// get control points
 	m_cps  = m_localPano->getCtrlPoints();
 	// only use 2D control points
-	BOOST_FOREACH(ControlPoint & kp, m_cps) {
-	    if (kp.mode == ControlPoint::X_Y) {
-		m_xy_cps.push_back(kp);
-	    }
-	}
+    for (size_t i = 0; i < m_cps.size();++i)
+    {
+        const ControlPoint& kp=m_cps[i];
+        if (kp.mode == ControlPoint::X_Y)
+        {
+            m_xy_cps.push_back(kp);
+        }
+    }
 	
 	if (optHFOV)
 	    m_optvars.push_back(OptVarSpec(0,std::string("v")));
@@ -131,15 +136,12 @@ public:
 			    
 	// extract initial parameters from pano
 	m_initParams.resize(m_optvars.size());
-	int i=0;
-	BOOST_FOREACH(OptVarSpec & v, m_optvars) {
-	    m_initParams[i] = v.get(*m_localPano);
-	    DEBUG_DEBUG("get init var: " << v.m_name << ", " << v.m_img << ": " << m_initParams[i]);
-	    i++;
-	}
-     }
-
-			    
+    for (size_t i = 0; i < m_optvars.size(); ++i)
+    {
+        m_initParams[i] = m_optvars[i].get(*m_localPano);
+        DEBUG_DEBUG("get init var: " << m_optvars[i].m_name << ", " << m_optvars[i].m_img << ": " << m_initParams[i]);
+    }
+}
 
     /** Perform exact estimate. 
      *
@@ -161,7 +163,7 @@ public:
     {
 	// copy points into panorama object
 	CPVector cpoints(points.size());	
-	for (int i=0; i < points.size(); i++) {
+	for (size_t i=0; i < points.size(); i++) {
 	    cpoints[i] = *points[i];
 	}
 
@@ -169,12 +171,11 @@ public:
 
 	PanoramaData * pano = const_cast<PanoramaData *>(m_localPano);
 	// set parameters in pano object
-	int i=0;
-	BOOST_FOREACH(const OptVarSpec & v, m_optvars) {
-	    v.set(*pano, p[i]);
-	    DEBUG_DEBUG("Initial " << v.m_name <<  ": i1:" << pano->getImage(m_li1).getVar(v.m_name) << ", i2: " << pano->getImage(m_li2).getVar(v.m_name));
-	    i++;
-	}
+    for (size_t i = 0; i < m_optvars.size(); ++i)
+    {
+        m_optvars[i].set(*pano, p[i]);
+        DEBUG_DEBUG("Initial " << m_optvars[i].m_name << ": i1:" << pano->getImage(m_li1).getVar(m_optvars[i].m_name) << ", i2: " << pano->getImage(m_li2).getVar(m_optvars[i].m_name));
+    }
 
 	m_localPano->setOptimizeVector(m_opt_first_pass);
 	// optimize parameters using panotools (or use a custom made optimizer here?)
@@ -187,7 +188,7 @@ public:
 	//std::cout << "result:" << std::endl;
 	//pano->printPanoramaScript(std::cerr, m_localPano->getOptimizeVector(), pano->getOptions(), imgs, true );
 
-	if (m_opt_second_pass.size() > 0) {
+	if (!m_opt_second_pass.empty()) {
 	    m_localPano->setOptimizeVector(m_opt_second_pass);
 	    //std::cout << "Optimizing with hfov" << std::endl;
 	    //pano->printPanoramaScript(std::cerr, m_localPano->getOptimizeVector(), pano->getOptions(), imgs, true );
@@ -197,12 +198,11 @@ public:
 	}
 
 	// get optimized parameters
-	i=0;
-	BOOST_FOREACH(const OptVarSpec & v, m_optvars) {
-	    p[i] = v.get(*pano);
-	    DEBUG_WARN("Optimized " << v.m_name <<  ": i1:" << pano->getImage(m_li1).getVar(v.m_name) << ", i2: " << pano->getImage(m_li2).getVar(v.m_name));
-	    i++;
-	}
+    for (size_t i = 0; i < m_optvars.size(); ++i)
+    {
+        p[i] = m_optvars[i].get(*pano);
+        DEBUG_DEBUG("Optimized " << m_optvars[i].m_name << ": i1:" << pano->getImage(m_li1).getVar(m_optvars[i].m_name) << ", i2: " << pano->getImage(m_li2).getVar(m_optvars[i].m_name));
+    }
 	return true;
     }
 
@@ -211,11 +211,10 @@ public:
     {
 	PanoramaData * pano = const_cast<PanoramaData *>(m_localPano);
 	// set parameters in pano object
-	int i=0;
-	BOOST_FOREACH(const OptVarSpec & v, m_optvars) {
-	    v.set(*pano, p[i]);
-	    i++;
-	}
+    for (size_t i = 0; i < m_optvars.size(); ++i)
+    {
+        m_optvars[i].set(*pano, p[i]);
+    }
 	// TODO: argh, this is slow, we should really construct this only once
 	// and reuse it for all calls...
 	PTools::Transform trafo_i1_to_pano;
@@ -235,7 +234,6 @@ public:
 	    x2 = cp.x1;
 	    y2 = cp.y1;
 	}   
-
 	trafo_i1_to_pano.transformImgCoord(xt, yt, x1, y1);
 	trafo_pano_to_i2.transformImgCoord(x2t, y2t, xt, yt);
 	DEBUG_DEBUG("Trafo i1 (0 " << x1 << " " << y1 << ") -> ("<< xt <<" "<< yt<<") -> i2 (1 "<<x2t<<", "<<y2t<<"), real ("<<x2<<", "<<y2<<")")
@@ -290,22 +288,21 @@ std::vector<int> RANSACOptimizer::findInliers(PanoramaData & pano, int i1, int i
 	break;
     }
 
-    DEBUG_WARN("Optimizing HFOV:" << optHFOV << " b:" << optB)
+    DEBUG_DEBUG("Optimizing HFOV:" << optHFOV << " b:" << optB)
     PTOptEstimator estimator(pano, i1, i2, maxError, optHFOV, optB);
 
     std::vector<double> parameters(estimator.m_initParams.size());
     std::copy(estimator.m_initParams.begin(),estimator.m_initParams.end(), parameters.begin());
     std::vector<int> inlier_idx;
-    DEBUG_WARN("Number of control points: " << estimator.m_xy_cps.size() << " Initial parameter[0]" << parameters[0]);
+    DEBUG_DEBUG("Number of control points: " << estimator.m_xy_cps.size() << " Initial parameter[0]" << parameters[0]);
     std::vector<const ControlPoint *> inliers = Ransac::compute(parameters, inlier_idx, estimator, estimator.m_xy_cps, 0.999, 0.3);
-    DEBUG_WARN("Number of inliers:" << inliers.size() << "optimized parameter[0]" << parameters[0]);
+    DEBUG_DEBUG("Number of inliers:" << inliers.size() << "optimized parameter[0]" << parameters[0]);
 
     // set parameters in pano object
-    int i=0;
-    BOOST_FOREACH(const OptVarSpec & v, estimator.m_optvars) {
-	// TODO: check when to use i1..
-	pano.updateVariable(i2, Variable(v.m_name, parameters[i]));
-	i++;
+    for (size_t i = 0; i < estimator.m_optvars.size(); ++i)
+    {
+        // TODO: check when to use i1..
+        pano.updateVariable(i2, Variable(estimator.m_optvars[i].m_name, parameters[i]));
     }
     
     
@@ -320,22 +317,54 @@ bool RANSACOptimizer::runAlgorithm()
     return true; // let's hope so.
 }
     
+class AutoOptimiseVisitor :public HuginGraph::BreadthFirstSearchVisitor
+{
+public:
+    explicit AutoOptimiseVisitor(PanoramaData* pano, const std::set<std::string>& optvec)
+        : m_opt(optvec), m_pano(pano)
+    {};
+    void Visit(const size_t vertex, const HuginBase::UIntSet& visitedNeighbors, const HuginBase::UIntSet& unvisitedNeighbors)
+    {
+        UIntSet imgs(visitedNeighbors);
+        imgs.insert(vertex);
+
+        if (imgs.size() > 1)
+        {
+            // get pano with neighbouring images.
+            PanoramaData* localPano = m_pano->getNewSubset(imgs); // don't forget to delete
+
+            // find number of current image in subset
+            unsigned currImg = 0;
+            unsigned cnt = 0;
+            for (UIntSet::const_iterator it = imgs.begin(); it != imgs.end(); ++it)
+            {
+                if (vertex == *it)
+                {
+                    currImg = cnt;
+                }
+                cnt++;
+            }
+
+            OptimizeVector optvec(imgs.size());
+            optvec[currImg] = m_opt;
+            localPano->setOptimizeVector(optvec);
+            PTools::optimize(*localPano);
+            m_pano->updateVariables(vertex, localPano->getImageVariables(currImg));
+            delete localPano;
+        };
+    };
+private:
+    const std::set<std::string>& m_opt;
+    PanoramaData* m_pano;
+};
 
 void AutoOptimise::autoOptimise(PanoramaData& pano, bool optRoll)
 {
-    // DGSW FIXME - Unreferenced
-    //	unsigned nImg = unsigned(pano.getNrOfImages());
-    // build a graph over all overlapping images
-    CPGraph graph;
-    createCPGraph(pano,graph);
-    
-#if DEBUG
-    {
-        std::ofstream gfile("cp_graph.dot");
-        // output doxygen graph
-        boost::write_graphviz(gfile, graph);
-    }
-#endif
+    // remove all connected images, keep only a single image for each connected stack
+    UIntSetVector imageGroups;
+    // don't forget to delete at end
+    PanoramaData* optPano = pano.getUnlinkedSubset(imageGroups);
+
     std::set<std::string> optvars;
     if(optRoll)
     {
@@ -344,39 +373,18 @@ void AutoOptimise::autoOptimise(PanoramaData& pano, bool optRoll)
     optvars.insert("p");
     optvars.insert("y");
     
-    unsigned int startImg = pano.getOptions().optimizeReferenceImage;
-    
     // start a breadth first traversal of the graph, and optimize
     // the links found (every vertex just once.)
-    
-    OptimiseVisitor optVisitor(pano, optvars);
-    
-    boost::queue<boost::graph_traits<CPGraph>::vertex_descriptor> qu;
-    boost::breadth_first_search(graph, startImg,
-                                color_map(get(boost::vertex_color, graph)).
-                                visitor(optVisitor));
-    /*
-#ifdef DEBUG
-     // print optimized script to cout
-     DEBUG_DEBUG("after local optim:");
-     VariableMapVector vars = optVisitor.getVariables();
-     for (unsigned v=0; v < pano.getNrOfImages(); v++) {
-         printVariableMap(std::cerr, vars[v]);
-         std::cerr << std::endl;
-     }
-#endif
-     
-     // apply variables to input panorama
-     pano.updateVariables(optVisitor.getVariables());
-     
-#ifdef DEBUG
-     UIntSet allImg;
-     fill_set(allImg,0, pano.getNrOfImages()-1);
-     // print optimized script to cout
-     DEBUG_DEBUG("after updateVariables():");
-     pano.printPanoramaScript(std::cerr, pano.getOptimizeVector(), pano.getOptions(), allImg, false);
-#endif
-     */
+    HuginGraph::ImageGraph graph(*optPano);
+    AutoOptimiseVisitor visitor(optPano, optvars);
+    graph.VisitAllImages(optPano->getOptions().optimizeReferenceImage, true, &visitor);
+
+    // now translate to found positions to initial pano
+    for (size_t i = 0; i < optPano->getNrOfImages(); ++i)
+    {
+        pano.updateVariables(*imageGroups[i].begin(), optPano->getImageVariables(i));
+    };
+    delete optPano;
 }
 
 
@@ -391,7 +399,7 @@ void SmartOptimise::smartOptimize(PanoramaData& optPano)
     // remove vertical and horizontal control points
     CPVector cps = optPano.getCtrlPoints();
     CPVector newCP;
-    for (CPVector::const_iterator it = cps.begin(); it != cps.end(); it++) {
+    for (CPVector::const_iterator it = cps.begin(); it != cps.end(); ++it) {
         if (it->mode == ControlPoint::X_Y)
         {
             newCP.push_back(*it);
@@ -425,9 +433,17 @@ void SmartOptimise::smartOptimize(PanoramaData& optPano)
     		break;
     	}
     }
+    bool singleStack=false;
+    if(!alreadyCalibrated) {
+        UIntSet images;
+        fill_set(images, 0, optPano.getNrOfImages()-1);
+        std::vector<UIntSet> stacks = getHDRStacks(optPano, images, optPano.getOptions());
+        singleStack = (stacks.size() == 1);
+    };
     // check if lens parameter values were loaded from ini file
     // and should not be changed
-    if (!alreadyCalibrated) {
+    // also don't optimize lens parameters for single stack projects
+    if (!alreadyCalibrated && !singleStack) {
         //---------------------------------------------------------------
         // Now with lens distortion
         
@@ -466,10 +482,10 @@ void SmartOptimise::smartOptimize(PanoramaData& optPano)
         // check if this is a 360 deg pano.
         CenterHorizontally(optPano).run();
         //FDiff2D fov = CalculateFOV(optPano).run<CalculateFOV>().getResultFOV();
-            FDiff2D fov = CalculateFOV::calcFOV(optPano);
+            hugin_utils::FDiff2D fov = CalculateFOV::calcFOV(optPano);
         
-        if (fov.x >= 359) {
-            // optimize HFOV for 360 deg panos
+        if (fov.x >= 150) {
+            // optimize HFOV for 150 deg panos
             optmode |= OPT_HFOV;
         }
         
@@ -492,14 +508,14 @@ void SmartOptimise::smartOptimize(PanoramaData& optPano)
         const VariableMapVector & vars = optPano.getVariables();
         DEBUG_DEBUG("after opt 1: newVars[0].b: " << const_map_get(vars[0],"b").getValue());
         DEBUG_DEBUG("after opt 1: oldVars[0].b: " << const_map_get(oldVars[0],"b").getValue());
-        for (VariableMapVector::const_iterator it = vars.begin() ; it != vars.end(); it++)
+        for (VariableMapVector::const_iterator it = vars.begin() ; it != vars.end(); ++it)
         {
             if (const_map_get(*it,"v").getValue() < 1.0) smallHFOV = true;
-            if (fabs(const_map_get(*it,"a").getValue()) > 0.8) highDist = true;
-            if (fabs(const_map_get(*it,"b").getValue()) > 0.8) highDist = true;
-            if (fabs(const_map_get(*it,"c").getValue()) > 0.8) highDist = true;
-            if (fabs(const_map_get(*it,"d").getValue()) > 2000) highShift = true;
-            if (fabs(const_map_get(*it,"e").getValue()) > 2000) highShift = true;
+            if (fabs(const_map_get(*it,"a").getValue()) > 0.2) highDist = true;
+            if (fabs(const_map_get(*it,"b").getValue()) > 0.2) highDist = true;
+            if (fabs(const_map_get(*it,"c").getValue()) > 0.2) highDist = true;
+            if (fabs(const_map_get(*it,"d").getValue()) > 1000) highShift = true;
+            if (fabs(const_map_get(*it,"e").getValue()) > 1000) highShift = true;
         }
 
         if (smallHFOV || highDist || highShift) {
@@ -531,9 +547,9 @@ void SmartOptimise::smartOptimize(PanoramaData& optPano)
             const VariableMapVector & vars = optPano.getVariables();
             DEBUG_DEBUG("after opt 2: newVars[0].b: " << const_map_get(vars[0],"b").getValue());
             DEBUG_DEBUG("after opt 2: oldVars[0].b: " << const_map_get(oldVars[0],"b").getValue());
-            for (VariableMapVector::const_iterator it = vars.begin() ; it != vars.end(); it++)
+            for (VariableMapVector::const_iterator it = vars.begin() ; it != vars.end(); ++it)
             {
-                if (fabs(const_map_get(*it,"b").getValue()) > 0.8) highDist = true;
+                if (fabs(const_map_get(*it,"b").getValue()) > 0.2) highDist = true;
             }
             if (highDist) {
                 optmode &= ~OPT_B;
@@ -618,7 +634,8 @@ OptimizeVector SmartOptimizerStub::createOptVars(const PanoramaData& optPano, in
             imgopt.insert("Vx");
             imgopt.insert("Vy");
         }
-        if (mode & OPT_RESP) {
+        if ((mode & OPT_RESP) && iImage.getResponseType() == HuginBase::SrcPanoImage::RESPONSE_EMOR) {
+            // ignore Ra..Re if reponse is linear
             imgopt.insert("Ra");
             imgopt.insert("Rb");
             imgopt.insert("Rc");

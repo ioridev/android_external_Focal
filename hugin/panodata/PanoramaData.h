@@ -18,8 +18,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -53,6 +53,7 @@ typedef std::set<unsigned int> UIntSet;
 ///
 typedef std::vector<unsigned int> UIntVector;
 
+typedef std::vector<UIntSet> UIntSetVector;
 
 /** Model for a panorama.
  *
@@ -105,6 +106,7 @@ public:
     ///
     virtual PanoramaData* getNewCopy() const =0;
     
+    virtual PanoramaData* getUnlinkedSubset(UIntSetVector& imageGroups) const = 0;
     
 // -- Data Access --
     
@@ -393,7 +395,7 @@ public:
     virtual void updateMasks(bool convertPosMaskToNeg=false)=0;
     /** transfers given mask from image imgNr to all targetImgs
         */
-    virtual void transferMask(MaskPolygon mask,unsigned int imgNr, const UIntSet targetImgs)=0;
+    virtual void transferMask(MaskPolygon mask,unsigned int imgNr, const UIntSet& targetImgs)=0;
     /** updates the optimize vector according to master switches */
     virtual void updateOptimizeVector()=0;
     /** returns set of reference image and images linked with reference images */
@@ -428,7 +430,7 @@ class PanoramaObserver
         *  panoramaChanged().
         *
         */
-        virtual void panoramaChanged(PanoramaData &pano) =0;
+        virtual void panoramaChanged(Panorama &pano) =0;
         
         /** notifies about changes to images
         *
@@ -439,32 +441,9 @@ class PanoramaObserver
         *  @param changed set of changed images
         *
         */
-        virtual void panoramaImagesChanged(PanoramaData& pano,
+        virtual void panoramaImagesChanged(Panorama& pano,
                                            const UIntSet& changed) =0;
         
-        /** notification about a new image.
-        *
-        *  It is called whenever an image has been added.
-        */
-    //  virtual void panoramaImageAdded(PanoramaData &pano, unsigned int imgNr)
-    //        { DEBUG_WARN("DEFAULT handler method"); };
-        
-        /** notifiy about the removal of an image.
-        *
-        *  always called when an image is removed.
-        *  Beware: the image might already destroyed when this is called.
-        */
-    //  virtual void panoramaImageRemoved(PanoramaData &pano, unsigned int imgNr)
-    //        { DEBUG_WARN("DEFAULT handler method"); };
-        
-        /** notify about an image change.
-        *
-        *  This is called whenever the image (for example the filename)
-        *  or something the image depends on (for example: Lens, Control
-        *  Points) has changed.
-        */
-    //  virtual void panoramaImageChanged(PanoramaData &pano, unsigned int imgNr)
-    //        { DEBUG_TRACE(""); };
         
 };
 

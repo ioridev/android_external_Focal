@@ -18,8 +18,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -40,11 +40,10 @@ Matrix3 StraightenPanorama::calcStraighteningRotation(const PanoramaData& panora
 
     for (unsigned int i = 0; i < panorama.getNrOfImages(); i++) {
         SrcPanoImage img = panorama.getSrcImage(i);
-        // BUG: need to read exif data here, since exif orientation is not
-        // stored in Panorama data model
-        double fl=0;
-        double crop=0;
-        img.readEXIF(fl, crop, false, false);
+        if (img.getExifMake().empty() || img.getExifModel().empty())
+        {
+            img.readEXIF();
+        };
         double roll = img.getExifOrientation();
         if (roll == 90 || roll == 270 ) {
             coord_idx.push_back(2);

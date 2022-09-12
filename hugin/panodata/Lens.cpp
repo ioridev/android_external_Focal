@@ -19,22 +19,18 @@
  *  General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
 #include "Lens.h"
 
-#include <vigra/impex.hxx>
 #include <hugin_utils/utils.h>
 #include <hugin_utils/stl_utils.h>
 
 
 namespace HuginBase {
-
-using namespace hugin_utils;
-
 
 Lens::Lens()
     : m_hasExif(false), m_projectionFormat(BaseSrcPanoImage::RECTILINEAR),
@@ -46,7 +42,6 @@ Lens::Lens()
 
 const char* Lens::variableNames[] = { "v", "a", "b", "c", "d", "e", "g", "t",
                                     "Va", "Vb", "Vc", "Vd", "Vx", "Vy", 
-                                    "Eev", "Er", "Eb",
                                     "Ra", "Rb", "Rc", "Rd", "Re",  0};
 
 double Lens::getHFOV() const
@@ -64,11 +59,6 @@ double Lens::getFocalLength() const
 
     double HFOV = const_map_get(variables,"v").getValue();
     return SrcPanoImage::calcFocalLength(m_projectionFormat,HFOV,getCropFactor(),m_imageSize);
-}
-
-void Lens::setEV(double ev)
-{
-    map_get(variables, "Eev").setValue(ev);
 }
 
 double Lens::getAspectRatio() const

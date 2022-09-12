@@ -17,8 +17,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -164,10 +164,13 @@ bool getPTDoubleParam(double & value, int & link,
 {
     std::string val;
     if (getPTParam(val,line, var)) {
-        DEBUG_ASSERT(line.size() > 0);
+        DEBUG_ASSERT(!line.empty());
         DEBUG_DEBUG(var << ":" <<val);
         if (val[0] == '=') {
-            link = hugin_utils::lexical_cast<int>(val.substr(1));
+            if (!hugin_utils::stringToInt(val.substr(1), link))
+            {
+                return false;
+            };
         } else {
             link = -1;
             if (!hugin_utils::stringToDouble(val, value)) {
@@ -184,10 +187,13 @@ bool readVar(Variable & var, int & link, const std::string & line)
 {
     std::string val;
     if (getPTParam(val,line, var.getName())) {
-        DEBUG_ASSERT(line.size() > 0);
+        DEBUG_ASSERT(!line.empty());
         DEBUG_DEBUG(var.getName() << ":" <<val);
         if (val[0] == '=') {
-            link = hugin_utils::lexical_cast<int>(val.substr(1));
+            if (!hugin_utils::stringToInt(val.substr(1), link))
+            {
+                return false;
+            };
         } else {
             link = -1;
             double dest = 0;

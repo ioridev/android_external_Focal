@@ -18,8 +18,8 @@
  *  General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -30,24 +30,15 @@
 #include "StandardImageVariableGroups.h"
 #include <panotools/PanoToolsInterface.h>
 #include <algorithms/basic/CalculateOverlap.h>
+#include <algorithms/basic/LayerStacks.h>
 #include <panodata/OptimizerSwitches.h>
 
 #include <fstream>
 #include <typeinfo>
-#include <vigra/impex.hxx>
-
 
 namespace HuginBase {
 
-using namespace hugin_utils;
-
-Panorama::Panorama()
-    : //currentProcess(NO_PROCESS),
-      //optimizerExe("PTOptimizer"),
-      //stitcherExe("PTStitcher"),
-      //PTScriptFile("PT_script.txt"),
-      dirty(false),
-      m_forceImagesUpdate(false)
+Panorama::Panorama() : dirty(false), m_forceImagesUpdate(false)
 {
     // init map with ptoptimizer variables.
     m_ptoptimizerVarNames.insert("a");
@@ -66,31 +57,17 @@ Panorama::Panorama()
     m_ptoptimizerVarNames.insert("TrZ");
     m_ptoptimizerVarNames.insert("Tpy");
     m_ptoptimizerVarNames.insert("Tpp");
-
-/*
-    settings.setPath("dangelo","PanoAssistant");
-    readSettings();
-    process.setCommunication(QProcess::Stdin|
-                             QProcess::Stdout|
-                             QProcess::Stderr|
-                             QProcess::DupStderr);
-    connect(&process, SIGNAL(processExited()), this, SLOT(processExited()));
-*/
 }
-
 
 Panorama::~Panorama()
 {
-    DEBUG_WARN("dtor");
+    DEBUG_TRACE("dtor");
     reset();
-    DEBUG_WARN("dtor about to finish");
+    DEBUG_TRACE("dtor about to finish");
 }
-
 
 void Panorama::reset()
 {
-    //
-    // imageChanged(0);
     // delete all images and control points.
     state.ctrlPoints.clear();
     state.deleteAllImages();
@@ -102,76 +79,6 @@ void Panorama::reset()
     AppBase::DocumentData::setDirty(false);
     dirty=false;
 }
-
-
-#if 0
-QDomElement Panorama::toXML(QDomDocument & doc)
-{
-    QDomElement root = doc.createElement("panorama");
-    // serialize global options:
-    root.appendChild(options.toXML(doc));
-
-    // serialize image
-    QDomElement images_ = doc.createElement("images");
-    for (ImageVector::iterator it = images.begin(); it != images.end(); ++it) {
-        images_.appendChild(it->toXML(doc));
-    }
-    root.appendChild(images_);
-
-    // control points
-    QDomElement cps = doc.createElement("control_points");
-    for (CPVector::iterator it = state.ctrlPoints.begin(); it != state.ctrlPoints.end(); ++it) {
-        cps.appendChild(it->toXML(doc));
-    }
-    root.appendChild(cps);
-
-    // lenses
-    QDomElement lenses_ = doc.createElement("lenses");
-    for (std::vector<Lens>::iterator it = lenses.begin(); it != lenses.end(); ++it) {
-        lenses_.appendChild(it->toXML(doc));
-    }
-    root.appendChild(lenses_);
-
-    return root;
-}
-
-void Panorama::setFromXML(const QDomNode & elem)
-{
-    DEBUG_DEBUG("Panorama::setFromXML");
-    clear();
-
-    Q_ASSERT(elem.nodeName() == "panorama");
-    // read global options
-    QDomNode n = elem.namedItem("output");
-    Q_ASSERT(!n.isNull);
-    options.setFromXML(n);
-    n = elem.namedItem("images");
-    Q_ASSERT(!n.isNull);
-    n = n.firstChild();
-    while( !n.isNull() ) {
-        QDomElement e = n.toElement(); // try to convert the node to an element.
-        Q_ASSERT((!e.isNull()) && e.tagName() == "image" );
-        images.push_back(PanoImage(*this, e));
-        reportAddedImage(images.size() -1);
-        n = n.nextSibling();
-    }
-
-
-    n = elem.namedItem("control_points");
-    Q_ASSERT(!n.isNull());
-    n = n.firstChild();
-    while( !n.isNull() ) {
-        QDomElement e = n.toElement();// try to convert the node to an element.
-        Q_ASSERT((!e.isNull()) && e.tagName() == "control_point" );
-        controlPoints.push_back(ControlPoint(*this, e));
-        reportAddedCtrlPoint(controlPoints.size() -1);
-        n = n.nextSibling();
-    }
-}
-
-
-#endif
-
 
 std::vector<unsigned int> Panorama::getCtrlPointsForImage(unsigned int imgNr) const
 {
@@ -319,13 +226,13 @@ void Panorama::updateVariable(unsigned int imgNr, const Variable &var)
 
 void Panorama::UpdateFocalLength(UIntSet imgs, double newFocalLength)
 {
-    for(UIntSet::const_iterator it=imgs.begin();it!=imgs.end();it++)
+    for(UIntSet::const_iterator it=imgs.begin();it!=imgs.end();++it)
     {
         state.images[*it]->updateFocalLength(newFocalLength);
         imageChanged(*it);
     };
     //search for images with linked HFOV and mark these also as changed
-    for(UIntSet::const_iterator it=imgs.begin();it!=imgs.end();it++)
+    for(UIntSet::const_iterator it=imgs.begin();it!=imgs.end();++it)
     {
         SrcPanoImage *img=state.images[*it];
         if(state.images[*it]->HFOVisLinked())
@@ -351,9 +258,9 @@ void Panorama::UpdateCropFactor(UIntSet imgs, double newCropFactor)
     for(unsigned i=0;i<getNrOfImages();i++)
     {
         focalLengthVector[i]=state.images[i]->calcFocalLength(state.images[i]->getProjection(),
-            state.images[i]->getHFOV(),state.images[i]->getExifCropFactor(),state.images[i]->getSize());
+            state.images[i]->getHFOV(),state.images[i]->getCropFactor(),state.images[i]->getSize());
     };
-    for(UIntSet::const_iterator it=imgs.begin();it!=imgs.end();it++)
+    for(UIntSet::const_iterator it=imgs.begin();it!=imgs.end();++it)
     {
         state.images[*it]->updateCropFactor(focalLengthVector[*it],newCropFactor);
         imageChanged(*it);
@@ -510,9 +417,9 @@ void Panorama::removeDuplicateCtrlPoints()
         };
     }
     //now remove duplicate control points, mark affected images as changed
-    if(duplicateCPs.size()>0)
+    if(!duplicateCPs.empty())
     {
-        for(std::set<unsigned int>::reverse_iterator it=duplicateCPs.rbegin();it!=duplicateCPs.rend();it++)
+        for(std::set<unsigned int>::reverse_iterator it=duplicateCPs.rbegin();it!=duplicateCPs.rend();++it)
         {
             ControlPoint cp=state.ctrlPoints[*it];
             imageChanged(cp.image1Nr);
@@ -542,7 +449,7 @@ void Panorama::changeControlPoint(unsigned int pNr, const ControlPoint & point)
 void Panorama::setCtrlPoints(const CPVector & points)
 {
     for (CPVector::const_iterator it = state.ctrlPoints.begin();
-         it != state.ctrlPoints.end(); it++)
+         it != state.ctrlPoints.end(); ++it)
     {
         imageChanged(it->image1Nr);
         imageChanged(it->image2Nr);
@@ -551,7 +458,7 @@ void Panorama::setCtrlPoints(const CPVector & points)
     state.ctrlPoints = points;
 
     for (CPVector::const_iterator it = state.ctrlPoints.begin();
-         it != state.ctrlPoints.end(); it++)
+         it != state.ctrlPoints.end(); ++it)
     {
         imageChanged(it->image1Nr);
         imageChanged(it->image2Nr);
@@ -566,7 +473,7 @@ void Panorama::updateLineCtrlPoints()
     // sort all line control points
     std::map<int, int> lines;
     for (CPVector::const_iterator it = state.ctrlPoints.begin();
-         it != state.ctrlPoints.end(); it++)
+         it != state.ctrlPoints.end(); ++it)
     {
         if (it->mode > 2)
             lines[it->mode] = 0;
@@ -579,7 +486,7 @@ void Panorama::updateLineCtrlPoints()
     }
 
     for (CPVector::iterator it = state.ctrlPoints.begin();
-         it != state.ctrlPoints.end(); it++)
+         it != state.ctrlPoints.end(); ++it)
     {
         if (it->mode > 2) {
             int newmode = lines[it->mode];
@@ -600,16 +507,9 @@ void Panorama::printPanoramaScript(std::ostream & o,
                                    bool forPTOptimizer,
                                    const std::string & stripPrefix) const
 {
-    using namespace std;
-    cout << "initializing printPanoramaScript" << endl;
-#if defined(__unix__) && !defined(ANDROID)
     // set numeric locale to C, for correct number output
-    char * t = setlocale(LC_NUMERIC,NULL);
-    char * old_locale = (char*) malloc(strlen(t)+1);
-    strcpy(old_locale, t);
+    char * old_locale = strdup(setlocale(LC_NUMERIC, NULL));
     setlocale(LC_NUMERIC,"C");
-#endif
-    cout << "done setting locale" << endl;
 
     if (forPTOptimizer) {
         o << "# PTOptimizer script, written by hugin" << std::endl
@@ -622,7 +522,6 @@ void Panorama::printPanoramaScript(std::ostream & o,
 
     output.printScriptLine(o, forPTOptimizer);
 
-    std::map<unsigned int, unsigned int> linkAnchors;
     // map from script img nr -> pano image nr
     std::map<unsigned int, unsigned int> imageNrMap;
     o << std::endl
@@ -646,7 +545,7 @@ void Panorama::printPanoramaScript(std::ostream & o,
             if (img.getAutoCenterCrop())
                 o << " autoCenterCrop=1";
         }
-        o << " cropFactor=" << img.getExifCropFactor() ;
+        o << " cropFactor=" << img.getCropFactor() ;
         if (! img.getActive()) {
             o << " disabled";
         }
@@ -703,9 +602,7 @@ void Panorama::printPanoramaScript(std::ostream & o,
                                 (vit->first == "c" && set_contains(optvars[imgNr], "c") )|| \
                                 (vit->first == "TrX" && set_contains(optvars[imgNr], "TrX") )|| \
                                 (vit->first == "TrY" && set_contains(optvars[imgNr], "TrY") )|| \
-                                (vit->first == "TrZ" && set_contains(optvars[imgNr], "TrZ") )|| \
-                                (vit->first == "Tpy" && set_contains(optvars[imgNr], "Tpy") )|| \
-                                (vit->first == "Tpp" && set_contains(optvars[imgNr], "Tpp") )\
+                                (vit->first == "TrZ" && set_contains(optvars[imgNr], "TrZ") )\
                                )\
                                && forPTOptimizer && vit->second.getValue() == 0.0) \
                     {\
@@ -739,7 +636,7 @@ void Panorama::printPanoramaScript(std::ostream & o,
                 o << " Vm" << img.getVigCorrMode();
             }
 
-            if (img.getFlatfieldFilename().size() > 0) {
+            if (!img.getFlatfieldFilename().empty()) {
                 o << " Vf\"" << img.getFlatfieldFilename() << "\"";
             }
             if (img.getResponseType() > 0) {
@@ -756,7 +653,7 @@ void Panorama::printPanoramaScript(std::ostream & o,
           << (img.getMorph() ? " o" : "");
 #endif
         std::string fname = img.getFilename();
-        if (stripPrefix.size() > 0) {
+        if (!stripPrefix.empty()) {
             // strip prefix from image names.
             // check if the prefix is acutally the same
             std::string tmp = fname.substr(0,stripPrefix.size());
@@ -811,6 +708,9 @@ void Panorama::printPanoramaScript(std::ostream & o,
         case PanoramaOptions::PTMASKER_BLEND:
             o << "PTmasker" << endl;
             break;
+        case PanoramaOptions::INTERNAL_BLEND:
+            o << "internal" << endl;
+            break;
         default:
         case PanoramaOptions::ENBLEND_BLEND:
             o << "enblend" << endl;
@@ -831,6 +731,7 @@ void Panorama::printPanoramaScript(std::ostream & o,
     o << "#hugin_enblendOptions " << output.enblendOptions << endl;
     o << "#hugin_enfuseOptions " << output.enfuseOptions << endl;
     o << "#hugin_hdrmergeOptions " << output.hdrmergeOptions << endl;
+    o << "#hugin_verdandiOptions " << output.verdandiOptions << endl;
 
     o << "#hugin_outputLDRBlended " << (output.outputLDRBlended ? "true" : "false") << endl;
     o << "#hugin_outputLDRLayers " << (output.outputLDRLayers ? "true" : "false") << endl;
@@ -850,8 +751,10 @@ void Panorama::printPanoramaScript(std::ostream & o,
     o << "#hugin_outputImageTypeHDR " << output.outputImageTypeHDR << endl;
     o << "#hugin_outputImageTypeHDRCompression " << output.outputImageTypeHDRCompression << endl;
 
-    o << "#hugin_outputStacksMinOverlap " << setprecision(3) << output.outputStacksMinOverlap << endl;
-    o << "#hugin_outputLayersExposureDiff " << setprecision(2) << output.outputLayersExposureDiff << endl;
+    o << "#hugin_outputStacksMinOverlap " << std::setprecision(3) << output.outputStacksMinOverlap << endl;
+    o << "#hugin_outputLayersExposureDiff " << std::setprecision(2) << output.outputLayersExposureDiff << endl;
+
+    o << "#hugin_outputRangeCompression " << std::setprecision(2) << output.outputRangeCompression << endl;
 
     if(optvars==getOptimizeVector())
     {
@@ -864,14 +767,9 @@ void Panorama::printPanoramaScript(std::ostream & o,
         o << "#hugin_optimizerPhotoMasterSwitch 0" << endl;
     };
 
-    o.flush();
-    cout << "printing done" << endl;
-#if defined(__unix__) && !defined(ANDROID)
     // reset locale
-    cout << "resetting locale" << endl;
     setlocale(LC_NUMERIC,old_locale);
     free(old_locale);
-#endif
 }
 
 
@@ -879,15 +777,9 @@ void Panorama::printStitcherScript(std::ostream & o,
                                    const PanoramaOptions & target,
                                    const UIntSet & imgs) const
 {
-#if defined(__unix__)
     // set numeric locale to C, for correct number output
-    char * t = setlocale(LC_NUMERIC,NULL);
-    char * old_locale = (char*) malloc(strlen(t)+1);
-#ifndef ANDROID
-    strcpy(old_locale, t);
-#endif
+    char * old_locale = strdup(setlocale(LC_NUMERIC, NULL));
     setlocale(LC_NUMERIC,"C");
-#endif
 
     o << "# PTStitcher script, written by hugin" << std::endl
       << std::endl;
@@ -927,30 +819,20 @@ void Panorama::printStitcherScript(std::ostream & o,
         o << std::endl;
     }
     o << std::endl;
-#if defined(__unix__) //&& !defined(ANDROID)
+
     // reset locale
     setlocale(LC_NUMERIC,old_locale);
     free(old_locale);
-#endif
 
 }
 
 void Panorama::parseOptimizerScript(std::istream & i, const UIntSet & imgs,
                                     VariableMapVector & imgVars, CPVector & CPs) const
 {
-    using namespace std;
-    using namespace PTScriptParsing;
-    
     DEBUG_TRACE("");
-#if defined(__unix__) //&& !defined(ANDROID)
     // set numeric locale to C, for correct number output
-    char * t = setlocale(LC_NUMERIC,NULL);
-    char * old_locale = (char*) malloc(strlen(t)+1);
-#ifndef ANDROID
-    strcpy(old_locale, t);
-#endif
+    char * old_locale = strdup(setlocale(LC_NUMERIC, ""));
     setlocale(LC_NUMERIC,"C");
-#endif
 
     unsigned int ic=0;
     std::map<unsigned int, unsigned int> script2ImgMap;
@@ -976,7 +858,7 @@ void Panorama::parseOptimizerScript(std::istream & i, const UIntSet & imgs,
 
     // 0 = read output (image lines), 1 = read control point distances
     int state = 0;
-    string line;
+    std::string line;
     unsigned int lineNr = 0;
     unsigned int scriptImgCounter = 0;
     unsigned int scriptCPCounter = 0;
@@ -1012,11 +894,11 @@ void Panorama::parseOptimizerScript(std::istream & i, const UIntSet & imgs,
             DEBUG_DEBUG("reading image variables for image:" << scriptImgCounter);
             // read position variables
             int link;
-            readVar(map_get(var, "r"), link, line);
+            PTScriptParsing::readVar(map_get(var, "r"), link, line);
             DEBUG_ASSERT(link == -1);
-            readVar(map_get(var, "p"), link, line);
+            PTScriptParsing::readVar(map_get(var, "p"), link, line);
             DEBUG_ASSERT(link == -1);
-            readVar(map_get(var, "y"), link, line);
+            PTScriptParsing::readVar(map_get(var, "y"), link, line);
             DEBUG_ASSERT(link == -1);
 
             DEBUG_DEBUG("yaw: " << map_get(var, "y").getValue()
@@ -1024,15 +906,15 @@ void Panorama::parseOptimizerScript(std::istream & i, const UIntSet & imgs,
                         << " roll " << map_get(var, "r").getValue());
             // read lens variables
 
-            readVar(map_get(var, "TrX"), link, line);
+            PTScriptParsing::readVar(map_get(var, "TrX"), link, line);
             DEBUG_ASSERT(link == -1);
-            readVar(map_get(var, "TrY"), link, line);
+            PTScriptParsing::readVar(map_get(var, "TrY"), link, line);
             DEBUG_ASSERT(link == -1);
-            readVar(map_get(var, "TrZ"), link, line);
+            PTScriptParsing::readVar(map_get(var, "TrZ"), link, line);
             DEBUG_ASSERT(link == -1);
-            readVar(map_get(var, "Tpy"), link, line);
+            PTScriptParsing::readVar(map_get(var, "Tpy"), link, line);
             DEBUG_ASSERT(link == -1);
-            readVar(map_get(var, "Tpp"), link, line);
+            PTScriptParsing::readVar(map_get(var, "Tpp"), link, line);
             DEBUG_ASSERT(link == -1);
 
             DEBUG_DEBUG("X: " << map_get(var, "TrX").getValue()
@@ -1043,7 +925,7 @@ void Panorama::parseOptimizerScript(std::istream & i, const UIntSet & imgs,
 
             for (const char **c = Lens::variableNames; *c != 0; ++c) {
                 Variable & curVar = map_get(var, *c);
-                if (!readVar(curVar, link, line)) {
+                if (!PTScriptParsing::readVar(curVar, link, line)) {
                     DEBUG_ERROR("Could not read "<< *c << " at script line " << lineNr);
                 }
                 // linking in output forbidden
@@ -1063,8 +945,8 @@ void Panorama::parseOptimizerScript(std::istream & i, const UIntSet & imgs,
             }
             if (line.find("# Control Point No") != 0) continue;
             DEBUG_DEBUG("reading cp dist line: " << line);
-            string::size_type p;
-            if ((p=line.find(':')) == string::npos) assert(0);
+            std::string::size_type p;
+            if ((p=line.find(':')) == std::string::npos) assert(0);
             p++;
             DEBUG_DEBUG("parsing point " << scriptCPCounter << " (idx:" << p << "): " << line.substr(p));
             double err = -1;
@@ -1080,17 +962,15 @@ void Panorama::parseOptimizerScript(std::istream & i, const UIntSet & imgs,
             break;
         }
     }
-#if defined(__unix__) && !defined(ANDROID)
+
     // reset locale
     setlocale(LC_NUMERIC,old_locale);
     free(old_locale);
-#endif
-
 }
 
 void Panorama::changeFinished(bool keepDirty)
 {
-    if (state.images.size() == 0) {
+    if (state.images.empty()) {
         // force an empty update if all images have been
         // removed
         DEBUG_DEBUG("forcing images update, with no images");
@@ -1105,9 +985,9 @@ void Panorama::changeFinished(bool keepDirty)
          std::ostream_iterator<unsigned int>(t, " "));
     DEBUG_TRACE("changed image(s) " << t.str() << " begin");
     //force update of crops
-    if(changedImages.size()>0)
+    if(!changedImages.empty())
     {
-        for(UIntSet::iterator it=changedImages.begin();it!=changedImages.end();it++)
+        for(UIntSet::iterator it=changedImages.begin();it!=changedImages.end();++it)
         {
             //if the projection was changed, we need to update the crop mode
             updateCropMode(*it);
@@ -1124,7 +1004,7 @@ void Panorama::changeFinished(bool keepDirty)
     std::list<PanoramaObserver *>::iterator it;
     for(it = observers.begin(); it != observers.end(); ++it) {
         DEBUG_TRACE("notifying listener");
-        if (changedImages.size() > 0 || m_forceImagesUpdate) {
+        if (!changedImages.empty() || m_forceImagesUpdate) {
             (*it)->panoramaImagesChanged(*this, changedImages);
         }
         (*it)->panoramaChanged(*this);
@@ -1147,9 +1027,9 @@ void Panorama::updateMasksForImage(unsigned int imgNr, MaskPolygonVector newMask
     m_forceImagesUpdate = true;
 };
 
-void Panorama::transferMask(MaskPolygon mask,unsigned int imgNr, const UIntSet targetImgs)
+void Panorama::transferMask(MaskPolygon mask,unsigned int imgNr, const UIntSet& targetImgs)
 {
-    if(targetImgs.size()==0)
+    if(targetImgs.empty())
     {
         return;
     };
@@ -1175,7 +1055,7 @@ void Panorama::transferMask(MaskPolygon mask,unsigned int imgNr, const UIntSet t
             case BaseSrcPanoImage::CROP_CIRCLE:
                 {
                     vigra::Rect2D cropRect=state.images[imgNr]->getCropRect();
-                    FDiff2D center=FDiff2D((cropRect.left()+cropRect.right())/2.0,(cropRect.top()+cropRect.bottom())/2.0);
+                    hugin_utils::FDiff2D center((cropRect.left()+cropRect.right())/2.0,(cropRect.top()+cropRect.bottom())/2.0);
                     double radius=((cropRect.width()<cropRect.height())?cropRect.width():cropRect.height())/2.0;
                     if(radius>10)
                     {
@@ -1205,7 +1085,7 @@ void Panorama::transferMask(MaskPolygon mask,unsigned int imgNr, const UIntSet t
         HuginBase::PTools::Transform trans;
         trans.createInvTransform(getImage(imgNr),getOptions());
         transformedMask.transformPolygon(trans);
-        for(UIntSet::const_iterator it=targetImgs.begin();it!=targetImgs.end();it++)
+        for(UIntSet::const_iterator it=targetImgs.begin();it!=targetImgs.end();++it)
         {
             if(imgNr==(*it))
             {
@@ -1307,7 +1187,6 @@ void Panorama::updateMasks(bool convertPosMaskToNeg)
                             {
                                 unsigned int lensNr=lenses.getPartNumber(i);
                                 //copy masks to all image of the same lens
-                                UIntSet imgLens;
                                 for(unsigned int k=0;k<getNrOfImages();k++)
                                 {
                                     if(lenses.getPartNumber(k)==lensNr)
@@ -1387,7 +1266,6 @@ void Panorama::updateMasks(bool convertPosMaskToNeg)
                             {
                                 unsigned int lensNr=lenses.getPartNumber(i);
                                 //copy masks to all image of the same lens
-                                UIntSet imgLens;
                                 for(unsigned int k=0;k<getNrOfImages();k++)
                                 {
                                     if(lenses.getPartNumber(k)==lensNr)
@@ -1433,8 +1311,8 @@ vigra::Rect2D Panorama::centerCropImage(unsigned int imgNr)
     {
         return cropRect;
     };
-    int dx = roundi(state.images[imgNr]->getRadialDistortionCenterShift().x);
-    int dy = roundi(state.images[imgNr]->getRadialDistortionCenterShift().y);
+    int dx = hugin_utils::roundi(state.images[imgNr]->getRadialDistortionCenterShift().x);
+    int dy = hugin_utils::roundi(state.images[imgNr]->getRadialDistortionCenterShift().y);
     vigra::Point2D center = vigra::Point2D(state.images[imgNr]->getSize().width()/2 + dx, state.images[imgNr]->getSize().height()/2 + dy);
 
     vigra::Diff2D d(state.images[imgNr]->getCropRect().width() / 2, state.images[imgNr]->getCropRect().height() / 2);
@@ -1482,7 +1360,7 @@ void Panorama::centerCrop(unsigned int imgNr)
     };
 };
 
-void UpdateOptVectorSet(std::set<std::string>& imgVar, const std::string var, const bool opt)
+void UpdateOptVectorSet(std::set<std::string>& imgVar, const std::string& var, const bool opt)
 {
     if(opt)
     {
@@ -1520,7 +1398,7 @@ void Panorama::checkRefOptStatus(bool& linkRefImgsYaw, bool& linkRefImgsPitch, b
     int nHCP = 0;
     int nVCP = 0;
     const CPVector & cps = getCtrlPoints();
-    for (CPVector::const_iterator it = cps.begin(); it != cps.end(); it++)
+    for (CPVector::const_iterator it = cps.begin(); it != cps.end(); ++it)
     {
         // control points
         if (it->mode == ControlPoint::X)
@@ -1560,7 +1438,7 @@ void Panorama::checkRefOptStatus(bool& linkRefImgsYaw, bool& linkRefImgsPitch, b
 
 void Panorama::updateOptimizeVector()
 {
-    if(state.images.size()==0)
+    if(state.images.empty())
     {
         return;
     };
@@ -1630,11 +1508,11 @@ void Panorama::updateOptimizeVector()
             UpdateOptVectorSet(state.optvec[i],"Vd", (state.optPhotoSwitch & OPT_VIGNETTING)>0);
             UpdateOptVectorSet(state.optvec[i],"Vx", (state.optPhotoSwitch & OPT_VIGNETTING_CENTER)>0);
             UpdateOptVectorSet(state.optvec[i],"Vy", (state.optPhotoSwitch & OPT_VIGNETTING_CENTER)>0);
-            UpdateOptVectorSet(state.optvec[i],"Ra", (state.optPhotoSwitch & OPT_RESPONSE)>0);
-            UpdateOptVectorSet(state.optvec[i],"Rb", (state.optPhotoSwitch & OPT_RESPONSE)>0);
-            UpdateOptVectorSet(state.optvec[i],"Rc", (state.optPhotoSwitch & OPT_RESPONSE)>0);
-            UpdateOptVectorSet(state.optvec[i],"Rd", (state.optPhotoSwitch & OPT_RESPONSE)>0);
-            UpdateOptVectorSet(state.optvec[i],"Re", (state.optPhotoSwitch & OPT_RESPONSE)>0);
+            UpdateOptVectorSet(state.optvec[i], "Ra", (state.optPhotoSwitch & OPT_RESPONSE) > 0 && state.images[i]->getResponseType() == HuginBase::SrcPanoImage::RESPONSE_EMOR);
+            UpdateOptVectorSet(state.optvec[i], "Rb", (state.optPhotoSwitch & OPT_RESPONSE) > 0 && state.images[i]->getResponseType() == HuginBase::SrcPanoImage::RESPONSE_EMOR);
+            UpdateOptVectorSet(state.optvec[i], "Rc", (state.optPhotoSwitch & OPT_RESPONSE) > 0 && state.images[i]->getResponseType() == HuginBase::SrcPanoImage::RESPONSE_EMOR);
+            UpdateOptVectorSet(state.optvec[i], "Rd", (state.optPhotoSwitch & OPT_RESPONSE) > 0 && state.images[i]->getResponseType() == HuginBase::SrcPanoImage::RESPONSE_EMOR);
+            UpdateOptVectorSet(state.optvec[i], "Re", (state.optPhotoSwitch & OPT_RESPONSE) > 0 && state.images[i]->getResponseType() == HuginBase::SrcPanoImage::RESPONSE_EMOR);
         };
     };
 };
@@ -1727,7 +1605,7 @@ void Panorama::moveImage(size_t img1, size_t img2)
     state.optvec=newOptVec;
 
     // update control points
-    for (CPVector::iterator it=state.ctrlPoints.begin(); it != state.ctrlPoints.end(); it++)
+    for (CPVector::iterator it=state.ctrlPoints.begin(); it != state.ctrlPoints.end(); ++it)
     {
         (*it).image1Nr = imgMap[(*it).image1Nr];
         (*it).image2Nr = imgMap[(*it).image2Nr];
@@ -1749,7 +1627,7 @@ bool Panorama::setMementoToCopyOf(const PanoramaDataMemento* memento)
         
         mymemento = dynamic_cast<const PanoramaMemento*>(memento);
         
-    } catch (std::bad_cast e) {
+    } catch (std::bad_cast&) {
 //        std::cerr << "Incompatible memento type." << std::endl;
         DEBUG_DEBUG("Incompatible memento type.");
         return false;
@@ -1817,6 +1695,11 @@ void Panorama::clearObservers()
     observers.clear();
 }
 
+const bool Panorama::hasPendingChanges() const
+{
+    return !changedImages.empty();
+}
+
 void Panorama::imageChanged(unsigned int imgNr)
 {
 //    DEBUG_TRACE("adding image " << imgNr);
@@ -1846,6 +1729,26 @@ UIntSet Panorama::getActiveImages() const
     }
 	return activeImgs;
 }
+
+const std::string Panorama::getICCProfileDesc() const
+{
+    return state.iccProfileDesc;
+};
+
+void Panorama::setICCProfileDesc(const std::string& newDesc)
+{
+    state.iccProfileDesc = newDesc;
+};
+
+const int Panorama::getNrOfBands() const
+{
+    return state.bands;
+};
+
+void Panorama::setNrOfBands(const int nrBands)
+{
+    state.bands = nrBands;
+};
 
 //==== internal function for variable management
 
@@ -1905,6 +1808,41 @@ Panorama Panorama::getSubset(const UIntSet & imgs) const
     subset.m_forceImagesUpdate = m_forceImagesUpdate;
     subset.m_ptoptimizerVarNames = m_ptoptimizerVarNames;
     
+    // check optimizer vector and update if necessary
+    // optvec contains only the variables for the first image, 
+    // but if the first image is not in the subset then the variables is missing also for the next image
+    // which can be in optvec
+    OptimizeVector internalOptvec=state.optvec;
+    UIntSet unusedImgs;
+    {
+        UIntSet allImgs;
+        fill_set(allImgs, 0, getNrOfImages() - 1);
+        std::set_difference(allImgs.begin(), allImgs.end(), imgs.begin(), imgs.end(), std::inserter(unusedImgs, unusedImgs.end()));
+    };
+    if (!unusedImgs.empty())
+    {
+        for (auto& i : unusedImgs)
+        {
+            for (auto& var : state.optvec[i])
+            {
+                for (auto& j : imgs)
+                {
+#define image_variable(name, type, default_value)\
+                    if (PTOVariableConverterFor##name::checkApplicability(var))\
+                    {\
+                        if (state.images[i]->name##isLinkedWith(*state.images[j]))\
+                        {\
+                            internalOptvec[j].insert(var);\
+                            break;\
+                        }\
+                    }
+#include "image_variables.h"
+#undef image_variable
+                };
+            };
+        };
+    };
+
     // create image number map.
     std::map<unsigned int, unsigned int> imageNrMap;
 
@@ -1914,7 +1852,7 @@ Panorama Panorama::getSubset(const UIntSet & imgs) const
          ++imgNrIt)
     {
         subset.state.images.push_back(new SrcPanoImage(*state.images[*imgNrIt]));
-        subset.state.optvec.push_back(state.optvec[*imgNrIt]);
+        subset.state.optvec.push_back(internalOptvec[*imgNrIt]);
         imageNrMap[*imgNrIt] = ic;
         ic++;
     }
@@ -1972,14 +1910,95 @@ Panorama Panorama::getSubset(const UIntSet & imgs) const
     return subset;
 }
 
+int FindStackNumberForImage(const std::vector<UIntSet>& imageGroups, const unsigned int imgNr)
+{
+    for (size_t i = 0; i < imageGroups.size(); ++i)
+    {
+        if (set_contains(imageGroups[i], imgNr))
+        {
+            return i;
+        };
+    };
+    return -1;
+};
+
+PanoramaData* Panorama::getUnlinkedSubset(UIntSetVector& imageGroups) const
+{
+    const CPVector cps = getCtrlPoints();
+    CPVector newCP;
+
+    // remove all connected images, keep only a single image for each connected stack
+    imageGroups.clear();
+    std::vector<bool> visitedImages(getNrOfImages(), false);
+    for (size_t i = 0; i < getNrOfImages(); ++i)
+    {
+        if (visitedImages[i])
+        {
+            continue;
+        };
+        const SrcPanoImage& img1 = getImage(i);
+        UIntSet imgs;
+        imgs.insert(i);
+        visitedImages[i] = true;
+        if (img1.YawisLinked())
+        {
+            for (size_t j = i + 1; j < getNrOfImages(); ++j)
+            {
+                if (img1.YawisLinkedWith(getImage(j)))
+                {
+                    imgs.insert(j);
+                    visitedImages[j] = true;
+                }
+            }
+        };
+        imageGroups.push_back(imgs);
+    };
+    UIntSet singleStackImgs;
+    for (size_t i = 0; i < imageGroups.size(); ++i)
+    {
+        singleStackImgs.insert(*imageGroups[i].begin());
+    };
+    // new generate subpano
+    PanoramaData* subPano = getNewSubset(singleStackImgs);
+    // translate now reference image
+    int newRefImage = FindStackNumberForImage(imageGroups, getOptions().optimizeReferenceImage);
+    if (newRefImage != -1)
+    {
+        PanoramaOptions opts = subPano->getOptions();
+        opts.optimizeReferenceImage = newRefImage;
+        subPano->setOptions(opts);
+    };
+    // remove all vertical and horizontal cp, also remap all cps to new subpano
+    // all cps from removed images will be mapped to first image of corresponding stack
+    for (CPVector::const_iterator it = cps.begin(); it != cps.end(); ++it)
+    {
+        if (it->mode == ControlPoint::X_Y)
+        {
+            ControlPoint cp(*it);
+            int newImg1 = FindStackNumberForImage(imageGroups, cp.image1Nr);
+            int newImg2 = FindStackNumberForImage(imageGroups, cp.image2Nr);
+            if (newImg1 != -1 && newImg2 != -1 && newImg1 != newImg2)
+            {
+                cp.image1Nr = newImg1;
+                cp.image2Nr = newImg2;
+                newCP.push_back(cp);
+            };
+        };
+    };
+    subPano->setCtrlPoints(newCP);
+    return subPano;
+}
+
 void Panorama::mergePanorama(const Panorama &newPano)
 {
     if(newPano.getNrOfImages()>0)
     {
         std::vector<unsigned int> new_image_nr(newPano.getNrOfImages());
-        unsigned int oldNrOfImage=getNrOfImages();
         HuginBase::OptimizeVector optVec=getOptimizeVector();
         HuginBase::OptimizeVector optVecNew=newPano.getOptimizeVector();
+        const size_t oldImgNumber = getNrOfImages();
+        HuginBase::UIntSet imgsAlreadyInPano;
+        HuginBase::UIntSet imgsCheckLens;
         //add only new images
         for(unsigned int i=0;i<newPano.getNrOfImages();i++)
         {
@@ -1992,10 +2011,11 @@ void Panorama::mergePanorama(const Panorama &newPano)
                     //image is already in panorama, we remember the image nr
                     found=true;
                     new_image_nr[i]=j;
+                    imgsAlreadyInPano.insert(i);
                     // now check if we have to update the masks
                     HuginBase::MaskPolygonVector masksOld=getImage(j).getMasks();
                     HuginBase::MaskPolygonVector masksNew=newPano.getImage(i).getMasks();
-                    if(masksNew.size()>0)
+                    if(!masksNew.empty())
                     {
                         for(unsigned int k=0;k<masksNew.size();k++)
                         {
@@ -2016,13 +2036,75 @@ void Panorama::mergePanorama(const Panorama &newPano)
             };
             if(!found)
             {
-                //new image found, add it
-                new_image_nr[i]=addImage(newPano.getImage(i));
+                //new image found, read EXIF data and add it
+                SrcPanoImage newImg(newPano.getImage(i));
+                newImg.readEXIF();
+                new_image_nr[i]=addImage(newImg);
+                imgsCheckLens.insert(i);
                 //copy also optimise vector
                 optVec.push_back(optVecNew[i]);
             };
         };
         setOptimizeVector(optVec);
+        // check and create lens for new added images
+        HuginBase::ConstImageVariableGroup newLenses(HuginBase::StandardImageVariableGroups::getLensVariables(), newPano);
+        HuginBase::ImageVariableGroup oldLenses(HuginBase::StandardImageVariableGroups::getLensVariables(), *this);
+        HuginBase::UIntSetVector lensImgs = newLenses.getPartsSet();
+        if (!imgsAlreadyInPano.empty())
+        {
+            for (auto img : imgsAlreadyInPano)
+            {
+                const size_t initialLensNumber = newLenses.getPartNumber(img);
+                const size_t newLensNumber = oldLenses.getPartNumber(new_image_nr[img]);
+                // create copy of UIntSet, because we can modifying the set in the for loop
+                // and this invalidates the iterators
+                const HuginBase::UIntSet imgs(imgsCheckLens);
+                for (auto j : imgs)
+                {
+                    if (set_contains(lensImgs[initialLensNumber], j))
+                    {
+                        oldLenses.switchParts(new_image_nr[j], newLensNumber);
+                        imgsCheckLens.erase(j);
+                        lensImgs[initialLensNumber].erase(j);
+                    };
+                };
+                lensImgs[initialLensNumber].erase(img);
+            };
+        };
+        if (!imgsCheckLens.empty())
+        {
+            // find first lens not already handled
+            size_t i = 0;
+            while (i < lensImgs.size() && lensImgs[i].empty())
+            {
+                i++;
+            };
+            if (i < lensImgs.size())
+            {
+                const HuginBase::SrcPanoImage& srcImage = getImage(new_image_nr[*lensImgs[i].begin()]);
+                size_t matchingLensNumber = -1;
+                for (size_t j = 0; j < oldImgNumber; ++j)
+                {
+                    const HuginBase::SrcPanoImage& compareImage = getImage(j);
+                    if (compareImage.getSize() == srcImage.getSize() &&
+                        compareImage.getExifModel() == srcImage.getExifModel() &&
+                        compareImage.getExifMake() == srcImage.getExifMake() &&
+                        compareImage.getExifFocalLength() == srcImage.getExifFocalLength())
+                    {
+                        matchingLensNumber = oldLenses.getPartNumber(j);
+                        break;
+                    };
+                };
+                // we found a matching lens
+                if (matchingLensNumber >= 0)
+                {
+                    for (size_t j : lensImgs[i])
+                    {
+                        oldLenses.switchParts(new_image_nr[j], matchingLensNumber);
+                    };
+                };
+            };
+        };
         // recreate links between image variables.
         for (unsigned int i=0; i<newPano.getNrOfImages(); i++)
         {
@@ -2040,11 +2122,21 @@ void Panorama::mergePanorama(const Panorama &newPano)
         }
         //now translate cp
         CPVector cps=newPano.getCtrlPoints();
+        const int nextLineCPOffset = getNextCPTypeLineNumber() - 3;
         for(unsigned int i=0;i<cps.size();i++)
         {
-            HuginBase::ControlPoint cp(new_image_nr[cps[i].image1Nr], cps[i].x1, cps[i].y1,
-                new_image_nr[cps[i].image2Nr],cps[i].x2, cps[i].y2, cps[i].mode);
-            addCtrlPoint(cp);
+            // special treatment of line control points
+            if (cps[i].mode > 2)
+            {
+                addCtrlPoint(HuginBase::ControlPoint(new_image_nr[cps[i].image1Nr], cps[i].x1, cps[i].y1,
+                    new_image_nr[cps[i].image2Nr], cps[i].x2, cps[i].y2, cps[i].mode + nextLineCPOffset));
+            }
+            else
+            {
+                // normal, horizontal and vertical cp keep their mode
+                addCtrlPoint(HuginBase::ControlPoint(new_image_nr[cps[i].image1Nr], cps[i].x1, cps[i].y1,
+                    new_image_nr[cps[i].image2Nr], cps[i].x2, cps[i].y2, cps[i].mode));
+            };
         };
         removeDuplicateCtrlPoints();
     };
@@ -2083,7 +2175,7 @@ Panorama::ReadWriteError Panorama::readData(std::istream& dataInput, std::string
         
     } else {
         DEBUG_FATAL("Could not parse the data input successfully.");
-        return PARCER_ERROR;
+        return PARSER_ERROR;
     }
 }
 
@@ -2130,6 +2222,126 @@ void Panorama::updateWhiteBalance(double redFactor, double blueFactor)
     };
 };
 
+const double Panorama::getMaxExposureDifference() const
+{
+    if (state.images.empty())
+    {
+        return 0;
+    }
+    double minEv = 1000;
+    double maxEv = -1000;
+    for (size_t i = 0; i < state.images.size(); i++)
+    {
+        const double ev = state.images[i]->getExposureValue();
+        minEv = std::min(minEv, ev);
+        maxEv = std::max(maxEv, ev);
+    };
+    return maxEv - minEv;
+};
+
+const bool Panorama::hasPossibleStacks() const
+{
+    if (state.images.empty())
+    {
+        return false;
+    }
+    // this algorithm is based on panostart by Bruno Postle
+    // bracketed pano has at least a dynamic range of 1.2 ev values (corresponds to bracket with +-2/3)
+    if (getMaxExposureDifference()<1.2)
+    {
+        return false;
+    }
+    //now get all exposure layers
+    UIntSet allImg;
+    fill_set(allImg, 0, state.images.size() - 1);
+    UIntSetVector evValues = getExposureLayers(*this, allImg, 0.3);
+    //if there is only one unique exposure value then there are no stacks
+    if (evValues.size()<2)
+    {
+        return false;
+    }
+    //if number of unique exposure values is equal the number of images then there are no stacks
+    if (evValues.size() == state.images.size())
+    {
+        return false;
+    }
+    //if number of images is not a multiple of number of unique exposure values
+    //then the stacks are incomplete, skipping
+    if (state.images.size() % evValues.size() != 0)
+    {
+        return false;
+    }
+    //check if exposure value is repeated with step size of bracket size
+    if (set_contains(evValues[0], evValues.size()))
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    };
+};
+
+/** create automatically stacks as indicated by metadata */
+void Panorama::linkPossibleStacks(bool linkPosition)
+{
+    // we need at least 2 images
+    if (state.images.size()<=1)
+    {
+        return;
+    };
+    // unlink all existing stacks
+    for (size_t imgNr = 0; imgNr < state.images.size(); imgNr++)
+    {
+        if (state.images[imgNr]->YawisLinked())
+        {
+            unlinkImageVariableYaw(imgNr);
+            unlinkImageVariablePitch(imgNr);
+            unlinkImageVariableRoll(imgNr);
+            unlinkImageVariableX(imgNr);
+            unlinkImageVariableY(imgNr);
+            unlinkImageVariableZ(imgNr);
+            unlinkImageVariableTranslationPlaneYaw(imgNr);
+            unlinkImageVariableTranslationPlanePitch(imgNr);
+        };
+        if (state.images[imgNr]->StackisLinked())
+        {
+            unlinkImageVariableStack(imgNr);
+        };
+    };
+    // now link all possible stacks
+    UIntSet allImg;
+    fill_set(allImg, 0, state.images.size() - 1);
+    UIntSetVector evValues = getExposureLayers(*this, allImg, 0.3);
+    if (evValues.empty())
+    {
+        return;
+    };
+    unsigned int imgNr = 0;
+    for (size_t i = 1; i<state.images.size(); i++)
+    {
+        if (set_contains(evValues[0], i))
+        {
+            imgNr = i;
+        }
+        else
+        {
+            linkImageVariableStack(imgNr, i);
+            if (linkPosition)
+            {
+                linkImageVariableYaw(imgNr, i);
+                linkImageVariablePitch(imgNr, i);
+                linkImageVariableRoll(imgNr, i);
+                linkImageVariableX(imgNr, i);
+                linkImageVariableY(imgNr, i);
+                linkImageVariableZ(imgNr, i);
+                linkImageVariableTranslationPlaneYaw(imgNr, i);
+                linkImageVariableTranslationPlanePitch(imgNr, i);
+            };
+        };
+    };
+};
+
 PanoramaMemento::PanoramaMemento(const PanoramaMemento & data)
 {
     // Use the assignment operator to get the work done: see the next function.
@@ -2151,7 +2363,7 @@ PanoramaMemento & PanoramaMemento::operator=(const PanoramaMemento & data)
     deleteAllImages();
     // copy image variables
     for (std::vector<SrcPanoImage *>::const_iterator it = data.images.begin();
-         it != data.images.end(); it++)
+         it != data.images.end(); ++it)
     {
         images.push_back(new SrcPanoImage(*(*it)));
     }
@@ -2181,6 +2393,8 @@ PanoramaMemento & PanoramaMemento::operator=(const PanoramaMemento & data)
     }
     
     ctrlPoints = data.ctrlPoints;
+    iccProfileDesc = data.iccProfileDesc;
+    bands = data.bands;
     
     options = data.options;
     
@@ -2202,7 +2416,7 @@ void PanoramaMemento::deleteAllImages()
 {
     // delete all the images pointed to by the images vector.
     for (std::vector<SrcPanoImage *>::iterator it = images.begin();
-         it != images.end(); it++)
+         it != images.end(); ++it)
     {
         delete *it;
     }
@@ -2212,30 +2426,23 @@ void PanoramaMemento::deleteAllImages()
 
 bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std::string &prefix)
 {
-    using namespace std;
-    using namespace PTScriptParsing;
-    
     DEBUG_TRACE("");
     // set numeric locale to C, for correct number output
     char * p = setlocale(LC_NUMERIC,NULL);
-#ifdef ANDROID
-    char * old_locale = "";
-#else
     char * old_locale = strdup(p);
-#endif
     setlocale(LC_NUMERIC,"C");
-    PTParseState state;
-    string line;
+    std::string line;
 
     // vector with the different information lines about images
-    vector<ImgInfo> oImgInfo;
-    vector<ImgInfo> iImgInfo;
-    // strange comment informations.
-    vector<ImgInfo> cImgInfo;
+    std::vector<PTScriptParsing::ImgInfo> oImgInfo;
+    std::vector<PTScriptParsing::ImgInfo> iImgInfo;
+    // strange comment information.
+    std::vector<PTScriptParsing::ImgInfo> cImgInfo;
     // hugin additional information
-    vector<ImgInfo> huginImgInfo;
+    std::vector<PTScriptParsing::ImgInfo> huginImgInfo;
     // vector with readed masks
     MaskPolygonVector ImgMasks;
+    CPVector loadedCp;
 
     // indicate lines that should be skipped for whatever reason
     bool skipNextLine = false;
@@ -2247,7 +2454,7 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
     bool PTGUILensLine = false;
 
     bool PTGUILensLoaded = false;
-    ImgInfo PTGUILens;
+    PTScriptParsing::ImgInfo PTGUILens;
 
     // set new options to some sensible default.
     options.reset();
@@ -2274,37 +2481,30 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
         {
             DEBUG_DEBUG("p line: " << line);
             int i;
-            DEBUG_DEBUG("... F ...");
-            if (getIntParam(i,line,"f"))
+            if (PTScriptParsing::getIntParam(i, line, "f"))
                 options.setProjection( (PanoramaOptions::ProjectionFormat) i );
             unsigned int w;
-            DEBUG_DEBUG("... W ...");
-            if (getIntParam(w, line, "w"))
+            if (PTScriptParsing::getIntParam(w, line, "w"))
                 options.setWidth(w);
             double v;
-            DEBUG_DEBUG("... V ...");
-            if (getDoubleParam(v, line, "v")) {
-                DEBUG_DEBUG("... V getDoubleParam OK");
+            if (PTScriptParsing::getDoubleParam(v, line, "v"))
                 options.setHFOV(v, false);
-            }
             int height;
-            DEBUG_DEBUG("... H ...");
-            if (getIntParam(height, line, "h"))
+            if (PTScriptParsing::getIntParam(height, line, "h"))
                 options.setHeight(height);
 
             double newE;
-            DEBUG_DEBUG("... E ...");
-            if (getDoubleParam(newE, line, "E"))
+            if (PTScriptParsing::getDoubleParam(newE, line, "E"))
                 options.outputExposureValue = newE;
             int ar=0;
-            if (getIntParam(ar, line, "R"))
+            if (PTScriptParsing::getIntParam(ar, line, "R"))
                 options.outputMode = (PanoramaOptions::OutputMode) ar;
 
-            string format;
-            if (getPTParam(format,line,"T"))
+            std::string format;
+            if (PTScriptParsing::getPTParam(format, line, "T"))
                 options.outputPixelType = format;
 
-            if ( getPTParam(format, line, "S") ) {
+            if (PTScriptParsing::getPTParam(format, line, "S")) {
                 int left, right, top, bottom;
                 int n = sscanf(format.c_str(), "%d,%d,%d,%d", &left, &right, &top, &bottom);
                 if (n == 4) {
@@ -2315,7 +2515,7 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
             }
 
             // parse projection parameters
-            if (getPTParam(format,line,"P")) {
+            if (PTScriptParsing::getPTParam(format, line, "P")) {
                 char * tstr = strdup(format.c_str());
                 std::vector<double> projParam;
                 char * b = strtok(tstr, " \"");
@@ -2338,7 +2538,7 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
             // this is fragile.. hope nobody adds additional whitespace
             // and other arguments than q...
             // n"JPEG q80"
-            if (getPTParam(format,line,"n")) {
+            if (PTScriptParsing::getPTParam(format, line, "n")) {
                 int t = format.find(' ');
                 options.outputFormat = options.getFormatFromName(format.substr(0,t));
 
@@ -2346,10 +2546,11 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
                 switch (options.outputFormat)
                 {
                     case PanoramaOptions::JPEG:
+                    case PanoramaOptions::JPEG_m:
                     {
                         // "parse" jpg quality
                         int q;
-                        if (getIntParam(q, format, "q") ) {
+                        if (PTScriptParsing::getIntParam(q, format, "q")) {
                         options.quality = (int) q;
                         }
                     }
@@ -2357,7 +2558,7 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
                     case PanoramaOptions::TIFF_m:
                     {
                         int coordImgs = 0;
-                        if (getIntParam(coordImgs, format, "p"))
+                        if (PTScriptParsing::getIntParam(coordImgs, format, "p"))
                         if (coordImgs)
                             options.saveCoordImgs = true;
                     }
@@ -2368,7 +2569,7 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
                     {
                         // parse tiff compression mode
                         std::string comp;
-                        if (getPTParam(comp, format, "c:")) {
+                        if (PTScriptParsing::getPTParam(comp, format, "c:")) {
                             if (comp == "NONE" || comp == "LZW" ||
                                 comp == "PACKBITS" || comp == "DEFLATE")
                             {
@@ -2378,7 +2579,7 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
                             }
                         }
                         // read tiff roi
-                        if (getPTParam(comp, format, "r:")) {
+                        if (PTScriptParsing::getPTParam(comp, format, "r:")) {
                             if (comp == "CROP") {
                                 options.tiff_saveROI = true;
                             } else {
@@ -2393,16 +2594,9 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
             }
 
             int cRefImg = 0;
-            if (getIntParam(cRefImg, line,"k")) {
-                options.colorCorrection = PanoramaOptions::BRIGHTNESS_COLOR;
-            } else if (getIntParam(cRefImg, line,"b")) {
-                options.colorCorrection = PanoramaOptions::BRIGHTNESS;
-            } else if (getIntParam(cRefImg, line,"d")) {
-                options.colorCorrection = PanoramaOptions::COLOR;
-            } else {
-                options.colorCorrection = PanoramaOptions::NONE;
+            if (PTScriptParsing::getIntParam(cRefImg, line, "k")) {
+                options.colorReferenceImage = cRefImg;
             }
-            options.colorReferenceImage=cRefImg;
             break;
 
         }
@@ -2411,26 +2605,8 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
             DEBUG_DEBUG("m line: " << line);
             // parse misc options
             int i;
-            if (getIntParam(i,line,"i"))
-		options.interpolator = (vigra_ext::Interpolator) i;
-            (void)getDoubleParam(options.gamma,line,"g");
-
-            if (getIntParam(i,line,"f")) {
-                switch(i) {
-                case 0:
-                    options.remapAcceleration = PanoramaOptions::MAX_SPEEDUP;
-                    break;
-                case 1:
-                    options.remapAcceleration = PanoramaOptions::MEDIUM_SPEEDUP;
-                    break;
-                default:
-                    options.remapAcceleration = PanoramaOptions::NO_SPEEDUP;
-                    break;
-                }
-            } else {
-                options.remapAcceleration = PanoramaOptions::NO_SPEEDUP;
-            }
-
+            if (PTScriptParsing::getIntParam(i, line, "i"))
+                options.interpolator = (vigra_ext::Interpolator) i;
             break;
         }
         case 'v':
@@ -2438,14 +2614,14 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
             DEBUG_DEBUG("v line: " << line);
             if (!PTGUIScriptFile) {
                 if (firstOptVecParse) {
-                    int nImg = max(iImgInfo.size(), oImgInfo.size());
+                    int nImg = std::max(iImgInfo.size(), oImgInfo.size());
                     DEBUG_DEBUG("nImg: " << nImg);
                     optvec = OptimizeVector(nImg);
                     firstOptVecParse = false;
                 }
                 std::stringstream optstream;
                 optstream << line.substr(1);
-                string var;
+                std::string var;
                 while (!(optstream >> std::ws).eof()) {
                     optstream >> var;
                     if (var.length() == 1) {
@@ -2459,8 +2635,12 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
                         continue;
                     }
                     std::string name=var.substr(0,np);
-                    std::string number = var.substr(np);
-                    unsigned int nr = hugin_utils::lexical_cast<unsigned int>(number);
+                    unsigned int nr;
+                    if (!hugin_utils::stringToUInt(var.substr(np), nr))
+                    {
+                        // invalid, continue
+                        continue;
+                    };
                     DEBUG_ASSERT(nr < optvec.size());
                     if(nr < optvec.size())
                     {
@@ -2478,21 +2658,20 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
             // read control points
             ControlPoint point;
 	    // TODO - should verify that line syntax is correct
-            getIntParam(point.image1Nr, line, "n");
+            PTScriptParsing::getIntParam(point.image1Nr, line, "n");
             point.image1Nr += ctrlPointsImgNrOffset;
-            getIntParam(point.image2Nr, line, "N");
+            PTScriptParsing::getIntParam(point.image2Nr, line, "N");
             point.image2Nr += ctrlPointsImgNrOffset;
-            getDoubleParam(point.x1, line, "x");
-            getDoubleParam(point.x2, line, "X");
-            getDoubleParam(point.y1, line, "y");
-            getDoubleParam(point.y2, line, "Y");
-            if (!getIntParam(t, line, "t") ){
+            PTScriptParsing::getDoubleParam(point.x1, line, "x");
+            PTScriptParsing::getDoubleParam(point.x2, line, "X");
+            PTScriptParsing::getDoubleParam(point.y1, line, "y");
+            PTScriptParsing::getDoubleParam(point.y2, line, "Y");
+            if (!PTScriptParsing::getIntParam(t, line, "t")){
                 t = 0;
             }
 
             point.mode = t;
-            ctrlPoints.push_back(point);
-            state = P_CP;
+            loadedCp.push_back(point);
             break;
         }
 
@@ -2506,7 +2685,7 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
                 PTGUILensLoaded = true;
                 PTGUILens.parse(line);
             } else {
-                iImgInfo.push_back(ImgInfo(line));
+                iImgInfo.push_back(PTScriptParsing::ImgInfo(line));
             }
             break;
         }
@@ -2517,7 +2696,7 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
                 PTGUILensLoaded = true;
                 PTGUILens.parse(line);
             } else {
-                oImgInfo.push_back(ImgInfo(line));
+                oImgInfo.push_back(PTScriptParsing::ImgInfo(line));
             }
             break;
         }
@@ -2525,14 +2704,14 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
         case 'k':
         {
             unsigned int param;
-            if (getIntParam(param,line,"i"))
+            if (PTScriptParsing::getIntParam(param, line, "i"))
             {
                 MaskPolygon newPolygon;
                 newPolygon.setImgNr(param);
-                if (getIntParam(param,line,"t"))
+                if (PTScriptParsing::getIntParam(param, line, "t"))
                     newPolygon.setMaskType((HuginBase::MaskPolygon::MaskType)param);
                 std::string format;
-                if (getPTParam(format,line,"p"))
+                if (PTScriptParsing::getPTParam(format, line, "p"))
                 {
                     if(newPolygon.parsePolygonString(format))
                         ImgMasks.push_back(newPolygon);
@@ -2544,7 +2723,7 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
         case '#':
         {
             // parse special comments...
-            if (line.substr(0,20) == string("# ptGui project file")) {
+            if (line.substr(0,20) == std::string("# ptGui project file")) {
                 PTGUIScriptFile = true;
             }
             if (line.substr(0,12) == "#-dummyimage") {
@@ -2581,7 +2760,7 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
 
             if (line.substr(0,8) == "#-hugin ") {
                 // read hugin image line
-                ImgInfo info;
+                PTScriptParsing::ImgInfo info;
                 info.autoCenterCrop = (line.find("autoCenterCrop=1") != std::string::npos);
                 size_t pos = line.find("cropFactor=");
                 if (pos > 0 && pos < line.length()) {
@@ -2606,16 +2785,24 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
                 // arghhh. I like string processing without regexps.
                 int b = line.find_first_not_of(" ",9);
                 int e = line.find_first_of(" ",b);
-                DEBUG_DEBUG(" width:" << line.substr(b,e-b)<<":")
-                int nextWidth = hugin_utils::lexical_cast<int,string>(line.substr(b,e-b));
+                DEBUG_DEBUG(" width:" << line.substr(b, e - b) << ":")
+                int nextWidth;
+                if (!hugin_utils::stringToInt(line.substr(b, e - b), nextWidth))
+                {
+                    continue;
+                };
                 DEBUG_DEBUG("next width " << nextWidth);
                 b = line.find_first_not_of(" ",e);
                 e = line.find_first_of(" ",b);
-                DEBUG_DEBUG(" height:" << line.substr(b,e-b)<<":")
-                int nextHeight = hugin_utils::lexical_cast<int, string>(line.substr(b,e-b));
+                DEBUG_DEBUG(" height:" << line.substr(b, e - b) << ":")
+                int nextHeight;
+                if (!hugin_utils::stringToInt(line.substr(b, e - b), nextHeight))
+                {
+                    continue;
+                };
                 DEBUG_DEBUG("next height " << nextHeight);
 
-                string nextFilename;
+                std::string nextFilename;
                 try {
                     b = line.find_first_not_of(" \"",e);
                     e = line.find_first_of("\"",b);
@@ -2626,7 +2813,7 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
                 }
                 DEBUG_DEBUG("next filename " << nextFilename);
 
-                ImgInfo info;
+                PTScriptParsing::ImgInfo info;
                 info.width  = nextWidth;
                 info.height = nextHeight;
                 info.filename = nextFilename;
@@ -2636,8 +2823,8 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
 
             // parse hugin properties
             if (line.substr(0,7) == "#hugin_") {
-                istringstream is(line);
-                string var,value;
+                std::istringstream is(line);
+                std::string var,value;
                 is >> var >> value;
                 if (!is.fail()) {
                     if (var == "#hugin_ptoversion") {
@@ -2663,13 +2850,15 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
                             options.blendMode = PanoramaOptions::PTMASKER_BLEND;
                         } else if (value == "smartblend") {
                             options.blendMode = PanoramaOptions::SMARTBLEND_BLEND;
+                        } else if (value == "internal") {
+                            options.blendMode = PanoramaOptions::INTERNAL_BLEND;
                         }
 
                     } else if (var == "#hugin_enblendOptions") {
                         options.enblendOptions = value;
                         while (!is.eof()) {
                             is >> value;
-                            if (value.length() > 0) {
+                            if (!is.fail() && value.length() > 0) {
                                 options.enblendOptions += " ";
                                 options.enblendOptions += value;
                             }
@@ -2678,7 +2867,7 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
                         options.enfuseOptions = value;
                         while (!is.eof()) {
                             is >> value;
-                            if (value.length() > 0) {
+                            if (!is.fail() && value.length() > 0) {
                                 options.enfuseOptions += " ";
                                 options.enfuseOptions += value;
                             }
@@ -2687,9 +2876,18 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
                         options.hdrmergeOptions = value;
                         while (!is.eof()) {
                             is >> value;
-                            if (value.length() > 0) {
+                            if (!is.fail() && value.length() > 0) {
                                 options.hdrmergeOptions += " ";
                                 options.hdrmergeOptions += value;
+                            }
+                        }
+                    } else if (var == "#hugin_verdandiOptions") {
+                        options.verdandiOptions = value;
+                        while (!is.eof()) {
+                            is >> value;
+                            if (!is.fail() && value.length() > 0) {
+                                options.verdandiOptions += " ";
+                                options.verdandiOptions += value;
                             }
                         }
 
@@ -2720,6 +2918,10 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
                         {
                             options.outputStacksMinOverlap = val;
                         };
+                        if (val < 0)
+                        {
+                            options.outputStacksMinOverlap = -1;
+                        };
                     } else if (var == "#hugin_outputLayersExposureDiff") {
                         double val=atof(value.c_str());
                         if(val>0.01)
@@ -2739,6 +2941,9 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
                         options.outputImageTypeHDR = value;
                     } else if (var == "#hugin_outputImageTypeHDRCompression") {
                         options.outputImageTypeHDRCompression = value;
+                    } else if (var == "#hugin_outputRangeCompression") {
+                        options.outputRangeCompression = atof(value.c_str());
+                        options.outputRangeCompression = std::max(0.0, std::min(options.outputRangeCompression, 20.0));
                     } else if (var == "#hugin_optimizerMasterSwitch") {
                         optSwitch = atoi(value.c_str());
                     } else if (var == "#hugin_optimizerPhotoMasterSwitch") {
@@ -2820,9 +3025,9 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
         // i lines. or it is linked on the o lines)
 
         // ordinary variables
-        for (const char ** v = ImgInfo::varnames; *v ; v++) {
+        for (const char ** v = PTScriptParsing::ImgInfo::varnames; *v; v++) {
 
-            if (iImgInfo[i].links[*v] == -2 && oImgInfo[i].links[*v] != -2 || iImgInfo[i].links[*v] == -1 && oImgInfo[i].links[*v] >=0) {
+            if ((iImgInfo[i].links[*v] == -2 && oImgInfo[i].links[*v] != -2) || (iImgInfo[i].links[*v] == -1 && oImgInfo[i].links[*v] >=0)) {
                 DEBUG_DEBUG(*v << ": o -> i");
                 iImgInfo[i].vars[*v] = oImgInfo[i].vars[*v];
                 iImgInfo[i].links[*v] = oImgInfo[i].links[*v];
@@ -2879,7 +3084,7 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
         int link = -2;
         fillVariableMap(vars);
 
-        for (const char ** v = ImgInfo::varnames; *v != 0; v++) {
+        for (const char ** v = PTScriptParsing::ImgInfo::varnames; *v != 0; v++) {
             std::string name(*v);
             double val = iImgInfo[i].vars[*v];
             map_get(vars,name).setValue(val);
@@ -2888,9 +3093,9 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
             }
         }
         
-        string file = iImgInfo[i].filename;
+        std::string file = iImgInfo[i].filename;
         // add prefix if only a relative path.
-#ifdef WIN32
+#ifdef _WIN32
         bool absPath = ( (file[1]==':' && file[2]=='\\') || (file[1]==':' && file[2]=='/') || (file[0] == '\\' && file[1] == '\\'));
 #else
         bool absPath = file[0] == '/';
@@ -2906,10 +3111,8 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
         // and make a reference to it so we dont keep using images.back(),
         SrcPanoImage & new_img = *new_img_p;
         new_img.setFilename(file);
-        double focal=0;
-        double crop=0;
-        new_img.readEXIF(focal,crop,false,false);
         new_img.setSize(vigra::Size2D(iImgInfo[i].width, iImgInfo[i].height));
+        new_img.checkImageSizeKnown();
         
         // Panotools Script variables for the current SrcPanoImage variable.
         // We just need the names.
@@ -2937,12 +3140,7 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
 /** @todo Warn the user when the script links variables in a way not expressable
  * by SrcPanoImage.
  */
-//#ifndef ANDROID
 #define RESET_LOCALE setlocale(LC_NUMERIC,old_locale); free(old_locale);
-//#else
-//#define RESET_LOCALE
-//#endif
-	DEBUG_DEBUG("GOING TO IMAGE_VARIABLES");
 #define image_variable( name, type, default_value )\
         PTOVariableConverterFor##name::addToVariableMap(name_src.get##name##IV(), vars_for_name);\
         for (VariableMap::iterator vit = vars_for_name.begin();\
@@ -2971,7 +3169,7 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
 #include "image_variables.h"
 #undef image_variable
         new_img.setProjection((SrcPanoImage::Projection) iImgInfo[i].f);
-	DEBUG_DEBUG("setProjection OK");
+
         // check, if stacks are correctly linked
 #define check_stack_link(name) \
         if(!new_img.YawisLinked() && new_img.name##isLinked())\
@@ -2997,14 +3195,13 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
         check_stack_link(TranslationPlaneYaw);
         check_stack_link(TranslationPlanePitch);
 #undef check_stack_link
-	DEBUG_DEBUG("Done check_stack_link");
 
 #if 0
         new_img.setFeatherWidth((unsigned int) iImgInfo[i].blend_radius);
 #endif
         
         // is this right?
-        new_img.setExifCropFactor(iImgInfo[i].cropFactor);
+        new_img.setCropFactor(iImgInfo[i].cropFactor);
         new_img.setVigCorrMode(iImgInfo[i].vigcorrMode);
         new_img.setFlatfieldFilename(iImgInfo[i].flatfieldname);
         new_img.setResponseType((SrcPanoImage::ResponseType)iImgInfo[i].responseType);
@@ -3020,7 +3217,6 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
             }
             new_img.setCropRect(iImgInfo[i].crop);
         }
-	DEBUG_DEBUG("Done setting options");
 
         //now fill the mask
         for(unsigned int j=0;j<ImgMasks.size();j++)
@@ -3032,19 +3228,55 @@ bool PanoramaMemento::loadPTScript(std::istream &i, int & ptoVersion, const std:
                     new_img.addMask(ImgMasks[j]);
                 };
     }
-    DEBUG_DEBUG("Optimizing vectors...");
+    
     // if we haven't found a v line in the project file
     if (optvec.size() != images.size()) {
         optvec = OptimizeVector(images.size());
     }
-    DEBUG_DEBUG("Done.");
-#ifndef ANDROID
+
+    if (!loadedCp.empty())
+    {
+        // check if control points are linked with existing images
+        const size_t nrImg = images.size();
+        for (CPVector::const_iterator it = loadedCp.begin(); it != loadedCp.end(); ++it)
+        {
+            HuginBase::ControlPoint cp = *it;
+            if (cp.image1Nr < nrImg && cp.image2Nr < nrImg)
+            {
+                ctrlPoints.push_back(cp);
+            };
+        };
+        if (loadedCp.size() != ctrlPoints.size())
+        {
+            std::cout << "WARNING: Project file contains control points that are connected with" << std::endl
+                << "  non existing images. Ignoring these control points." << std::endl;
+        };
+    };
+
+    if (images.empty())
+    {
+        std::cerr << "ERROR: Project file contains no images." << std::endl;
+    }
+    else
+    {
+        if (options.optimizeReferenceImage < 0 || options.optimizeReferenceImage >= images.size())
+        {
+            // optimize reference images reference to non-existing image
+            options.optimizeReferenceImage = 0;
+            std::cout << "WARNING: Optimize reference image refers to non existing image. Reset to default value." << std::endl;
+        };
+        if (options.colorReferenceImage < 0 || options.colorReferenceImage >= images.size())
+        {
+            // optimize reference images reference to non-existing image
+            options.colorReferenceImage = 0;
+            std::cout << "WARNING: Optimize photometric reference image refers to non existing image. Reset to default value." << std::endl;
+        };
+    };
     // reset locale
     setlocale(LC_NUMERIC,old_locale);
     free(old_locale);
-#endif
 
-    return true;
+    return !images.empty();
 }
 
 } // namespace

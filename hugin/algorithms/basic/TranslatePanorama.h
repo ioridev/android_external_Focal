@@ -14,8 +14,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -35,12 +35,9 @@ class IMPEX TranslatePanorama : public PanoramaAlgorithm
 
     public:
         ///
-        TranslatePanorama(PanoramaData& panorama, const double x, const double y, const double z)
+        explicit TranslatePanorama(PanoramaData& panorama, const double x = 0, const double y = 0, const double z = 0)
          : PanoramaAlgorithm(panorama), o_x(x), o_y(y), o_z(z)
         {};
-        
-        ///
-        TranslatePanorama(PanoramaData& panorama);
         
         ///
         virtual ~TranslatePanorama() {};

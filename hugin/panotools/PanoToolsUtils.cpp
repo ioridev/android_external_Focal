@@ -19,8 +19,8 @@
  *  General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -55,11 +55,7 @@ void calcCtrlPointErrors (PanoramaData& pano)
     if(pano.getNrOfImages()>0 && pano.getNrOfCtrlPoints()>0)
     {
         char * p=setlocale(LC_ALL,NULL);
-#ifndef ANDROID
         char * oldlocale=strdup(p);
-#else
-	char * oldlocale="";
-#endif
         setlocale(LC_ALL,"C");
         UIntSet allImg;
         std::ostringstream scriptbuf;
@@ -87,6 +83,8 @@ void calcCtrlPointErrors (PanoramaData& pano)
                 pano.updateCtrlPointErrors( GetAlignInfoCtrlPoints(ainf) );
             }
         }
+        DisposeAlignInfo(&ainf);
+        free(script);
         setlocale(LC_ALL,oldlocale);
         free(oldlocale);
     };

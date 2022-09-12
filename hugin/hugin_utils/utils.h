@@ -1,7 +1,7 @@
 // -*- c-basic-offset: 4 -*-
 /** @file hugin_utils/utils.h
  *
- *  @author Pablo d'Angelo <pablo.dangelo@web.de>
+ *  author Pablo d'Angelo <pablo.dangelo@web.de>
  *
  *  $Id$
  *
@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -32,28 +32,10 @@
 #include <iostream>
 #include <sstream>
 #include <cassert>
+#include <vigra/imageinfo.hxx>
+#include <lcms2.h>
 
 #include <hugin_utils/platform.h>
-
-#if 0
-// ??????????????????????????????????????????
-#ifdef __WXMSW__
-    // has to be included before!
-    #include <wx/log.h>
-#endif
-
-#ifdef WIN32
-    #define snprintf _snprintf
-#endif
-
-#ifdef __WXMSW__
-    // has to be included before!
-    #include <wx/log.h>
-    #define snprintf _snprintf
-#endif
-// ??????????????????????????????????????????
-#endif
-
 
 // misc utility functions / macros
 
@@ -62,94 +44,72 @@
 // on windows we can't use GetCurrentTime because this is replaced with GetTickCount
 
 #ifdef __GNUC__
-    // the full function name is too long..
+// the full function name is too long..
 //  #define DEBUG_HEADER hugin_utils::CurrentTime() <<" (" << __FILE__ << ":" << __LINE__ << ") "  << __PRETTY_FUNCTION__ << "()" << std::endl << "    "
-    #define DEBUG_HEADER hugin_utils::GetCurrentTimeString() <<" (" << __FILE__ << ":" << __LINE__ << ") "  << __func__ << "(): "
+#define DEBUG_HEADER hugin_utils::GetCurrentTimeString() << " (" << __FILE__ << ":" << __LINE__ << ") " << __func__ << "(): "
 #elif _MSC_VER > 1300
-    #define DEBUG_HEADER hugin_utils::GetCurrentTimeString() <<" (" << __FILE__ << ":" << __LINE__ << ") "  << __FUNCTION__ << "(): "
+#define DEBUG_HEADER hugin_utils::GetCurrentTimeString() << " (" << __FILE__ << ":" << __LINE__ << ") " << __FUNCTION__ << "(): "
 #else
-    #define DEBUG_HEADER hugin_utils::GetCurrentTimeString() <<" (" << __FILE__ << ":" << __LINE__ << ") "  << __func__ << "(): "
+#define DEBUG_HEADER hugin_utils::GetCurrentTimeString() << " (" << __FILE__ << ":" << __LINE__ << ") " << __func__ << "(): "
 #endif
 
-//#define DEBUG 1
 #ifdef DEBUG
-    // debug trace
-    #define DEBUG_TRACE(msg) { std::cerr << "TRACE " << DEBUG_HEADER << msg << std::endl; }
-    // low level debug info
-    #define DEBUG_DEBUG(msg) { std::cerr << "DEBUG " << DEBUG_HEADER << msg << std::endl; }
-    // informational debug message,
-    #define DEBUG_INFO(msg) { std::cerr << "INFO " << DEBUG_HEADER << msg << std::endl; }
-    // major change/operation should use this
-    #define DEBUG_NOTICE(msg) { std::cerr << "NOTICE " << DEBUG_HEADER << msg << std::endl; }
+// debug trace
+#define DEBUG_TRACE(msg)                                           \
+    {                                                              \
+        std::cerr << "TRACE " << DEBUG_HEADER << msg << std::endl; \
+    }
+// low level debug info
+#define DEBUG_DEBUG(msg)                                           \
+    {                                                              \
+        std::cerr << "DEBUG " << DEBUG_HEADER << msg << std::endl; \
+    }
+// informational debug message,
+#define DEBUG_INFO(msg)                                           \
+    {                                                             \
+        std::cerr << "INFO " << DEBUG_HEADER << msg << std::endl; \
+    }
+// major change/operation should use this
+#define DEBUG_NOTICE(msg)                                           \
+    {                                                               \
+        std::cerr << "NOTICE " << DEBUG_HEADER << msg << std::endl; \
+    }
 #else
-    #define DEBUG_TRACE(msg)
-    #define DEBUG_DEBUG(msg)
-    #define DEBUG_INFO(msg)
-    #define DEBUG_NOTICE(msg)
+#define DEBUG_TRACE(msg)
+#define DEBUG_DEBUG(msg)
+#define DEBUG_INFO(msg)
+#define DEBUG_NOTICE(msg)
 #endif
 
-// when an error occured, but can be handled by the same function
-#define DEBUG_WARN(msg) { std::cerr << "WARN: " << DEBUG_HEADER << msg << std::endl; }
-// an error occured, might be handled by a calling function
-#define DEBUG_ERROR(msg) { std::cerr << "ERROR: " << DEBUG_HEADER << msg << std::endl; }
-// a fatal error occured. further program execution is unlikely
-#define DEBUG_FATAL(msg) { std::cerr << "FATAL: " << DEBUG_HEADER << "(): " << msg << std::endl; }
+// when an error occurred, but can be handled by the same function
+#define DEBUG_WARN(msg)                                            \
+    {                                                              \
+        std::cerr << "WARN: " << DEBUG_HEADER << msg << std::endl; \
+    }
+// an error occurred, might be handled by a calling function
+#define DEBUG_ERROR(msg)                                            \
+    {                                                               \
+        std::cerr << "ERROR: " << DEBUG_HEADER << msg << std::endl; \
+    }
+// a fatal error occurred. further program execution is unlikely
+#define DEBUG_FATAL(msg)                                                      \
+    {                                                                         \
+        std::cerr << "FATAL: " << DEBUG_HEADER << "(): " << msg << std::endl; \
+    }
 // C-style assertion
 #define DEBUG_ASSERT(cond) assert(cond)
 
-
-// use trace function under windows, because usually there is
-// no stdout under windows
-#ifdef __WXMSW__
-    #ifdef DEBUG
-        #undef DEBUG_TRACE
-        #undef DEBUG_DEBUG
-        #undef DEBUG_INFO
-        #undef DEBUG_NOTICE
-
-        // debug trace
-//      #define DEBUG_TRACE(msg) { std::stringstream o; o << "TRACE " << DEBUG_HEADER << msg; wxLogDebug(o.str().c_str());}
-        #define DEBUG_TRACE(msg) { std::cerr << "TRACE " << DEBUG_HEADER << msg << std::endl; }
-        // low level debug info
-//      #define DEBUG_DEBUG(msg) { std::stringstream o; o << "DEBUG " << DEBUG_HEADER << msg; wxLogDebug(o.str().c_str()); }
-        #define DEBUG_DEBUG(msg) { std::cerr << "DEBUG " << DEBUG_HEADER << msg << std::endl; }
-        // informational debug message,
-//      #define DEBUG_INFO(msg) { std::stringstream o; o << "INFO " << DEBUG_HEADER << msg; wxLogDebug(o.str().c_str()); }
-        #define DEBUG_INFO(msg) { std::cerr << "INFO " << DEBUG_HEADER << msg << std::endl; }
-        // major change/operation should use this
-//      #define DEBUG_NOTICE(msg) { std::stringstream o; o << "NOTICE " << DEBUG_HEADER << msg; wxLogMessage(o.str().c_str()); }
-        #define DEBUG_NOTICE(msg) { std::cerr << "NOTICE " << DEBUG_HEADER << msg << std::endl; }
-    #endif
-    
-    #undef DEBUG_WARN
-    #undef DEBUG_ERROR
-    #undef DEBUG_FATAL
-    #undef DEBUG_ASSERT
-
-    // when an error occured, but can be handled by the same function
-    #define DEBUG_WARN(msg) { std::stringstream o; o << "WARN: " << DEBUG_HEADER << msg; wxLogWarning(wxString(o.str().c_str(), wxConvISO8859_1));}
-    // an error occured, might be handled by a calling function
-    #define DEBUG_ERROR(msg) { std::stringstream o; o << "ERROR: " << DEBUG_HEADER << msg; wxLogError(wxString(o.str().c_str(),wxConvISO8859_1));}
-    // a fatal error occured. further program execution is unlikely
-    #define DEBUG_FATAL(msg) { std::stringstream o; o << "FATAL: " << DEBUG_HEADER << "(): " << msg; wxLogError(wxString(o.str().c_str(),wxConvISO8859_1)); }
-    // assertion
-    #define DEBUG_ASSERT(cond) \
-        do { \
-            if (!(cond)) { \
-                std::stringstream o; o << "ASSERTATION: " << DEBUG_HEADER << "(): " << #cond; \
-                    wxLogFatalError(wxString(o.str().c_str(),wxConvISO8859_1)); \
-            } \
-        } while(0)
-#endif
-
 //
-#define UTILS_THROW(class, msg)  { std::stringstream o; o <<  msg; throw(class(o.str().c_str())); };
-
-
+#define UTILS_THROW(class, msg)        \
+    {                                  \
+        std::stringstream o;           \
+        o << msg;                      \
+        throw(class(o.str().c_str())); \
+    };
 
 namespace hugin_utils
 {
-    
+
     /** current time as a string */
     IMPEX std::string GetCurrentTimeString();
 
@@ -160,7 +120,7 @@ namespace hugin_utils
      *  @p fractionaldigits number of fractional digits.
      *     -1: not specified, use default.
      */
-    IMPEX std::string doubleToString(double d, int fractionaldigits=-1);
+    IMPEX std::string doubleToString(double d, int fractionaldigits = -1);
 
     /** convert a string to a double, ignore localisation.
      *  always accept both.
@@ -174,95 +134,93 @@ namespace hugin_utils
      *  @return success
      */
     template <typename STR>
-    bool stringToDouble(const STR & str_, double & dest)
+    bool stringToDouble(const STR &str_, double &dest)
     {
-        double res=0;
+        double res = 0;
         // set numeric locale to C, for correct number output
-        char * old_locale = setlocale(LC_NUMERIC,NULL);
-#ifndef ANDROID
+        char *old_locale = setlocale(LC_NUMERIC, NULL);
         old_locale = strdup(old_locale);
-#endif
-        setlocale(LC_NUMERIC,"C");
+        setlocale(LC_NUMERIC, "C");
 
         STR str(str_);
         // replace all kommas with points, independant of the locale..
-        for (typename STR::iterator it = str.begin(); it != str.end(); ++it) {
-            if (*it == ',') {
+        for (typename STR::iterator it = str.begin(); it != str.end(); ++it)
+        {
+            if (*it == ',')
+            {
                 *it = '.';
             }
         }
 
-        const char * p = str.c_str();
-        char * pe=0;
-        res = strtod(p,&pe);
+        const char *p = str.c_str();
+        char *pe = 0;
+        res = strtod(p, &pe);
 
-#ifndef ANDROID
         // reset locale
-        setlocale(LC_NUMERIC,old_locale);
+        setlocale(LC_NUMERIC, old_locale);
         free(old_locale);
-#endif
 
-        if (pe == p) {
+        if (pe == p)
+        {
             // conversion failed.
             DEBUG_DEBUG("conversion failed: " << str << " to:" << dest);
             return false;
-        } else {
+        }
+        else
+        {
             // conversion ok.
             dest = res;
-    //        DEBUG_DEBUG("converted: " << str << " to:" << dest);
+            //        DEBUG_DEBUG("converted: " << str << " to:" << dest);
             return true;
         }
     }
 
+    /** convert string to integer value, returns true, if sucessful */
+    IMPEX bool stringToInt(const std::string &s, int &val);
+
+    /** convert string to unsigned integer value, returns true, if sucessful */
+    IMPEX bool stringToUInt(const std::string &s, unsigned int &val);
+
     /** Get the path to a filename */
-    IMPEX std::string getPathPrefix(const std::string & filename);
+    IMPEX std::string getPathPrefix(const std::string &filename);
 
     /** Get extension of a filename */
-    IMPEX std::string getExtension(const std::string & basename);
+    IMPEX std::string getExtension(const std::string &basename);
 
     /** remove the path of a filename (mainly useful for gui
      *  display of filenames)
      */
-    IMPEX std::string stripPath(const std::string & filename);
+    IMPEX std::string stripPath(const std::string &filename);
 
     /** remove extension of a filename */
-    IMPEX std::string stripExtension(const std::string & basename);
+    IMPEX std::string stripExtension(const std::string &basename);
 
-    template <typename Target, typename Source>
-    Target lexical_cast(Source arg) {
+    /** remove trailing and leading white spaces and tabs */
+    IMPEX std::string StrTrim(const std::string &str);
 
-        std::stringstream interpreter;
+    /** split string s at given sep, returns vector of strings */
+    IMPEX std::vector<std::string> SplitString(const std::string &s, const std::string &sep);
 
-        Target result;
-
-        if (!(interpreter << arg) ||
-            !(interpreter >> result) ||
-            !(interpreter >> std::ws).eof()) {
-
-            DEBUG_ERROR("lexical cast error");
-            // cast error.  handle it somehow
-            // boost guys throw an exception here
-        };
-
-        return result;
-
-    }; // lexical cast
-
+    /** replace all characters oldChar in s with newChar */
+    IMPEX void ReplaceAll(std::string &s, const std::string &oldChar, char newChar);
 
     template <class str>
-    str QuoteStringInternal(const str & arg, const str & quotechar,
-                            const str & replacements)
+    str QuoteStringInternal(const str &arg, const str &quotechar,
+                            const str &replacements)
     {
         // loop over all chars..
         str ret(arg);
         size_t len = replacements.size();
-        for (size_t i = 0; i < len; i++) {
-            str source(replacements.substr(i,1));
+        for (size_t i = 0; i < len; i++)
+        {
+            str source(replacements.substr(i, 1));
             str dest(quotechar + source);
             size_t idx = 0;
-            do {
-                idx = ret.find(source,idx);
-                if (idx != str::npos) {
+            do
+            {
+                idx = ret.find(source, idx);
+                if (idx != str::npos)
+                {
                     ret.replace(idx, 1, dest);
                     // skip to next unknown char.
                     idx += 2;
@@ -271,32 +229,43 @@ namespace hugin_utils
         }
         return ret;
     }
-    
-    ///
-    template <class str>
-    str replaceAll(const str& arg, const str& target, const str& replacement)
-    {
-        str ret(arg);
-        typename str::size_type pos = ret.find(target, 0);
-        
-        for ( typename str::size_type n = 0 ;  pos != str::npos ;  pos = ret.find(target, n) )
-        {
-            ret.replace(pos, target.size(), replacement);
-            n = pos + replacement.size();
-        }
-        
-        return ret;
-    }
-    
-    IMPEX void ControlPointErrorColour(const double cperr, 
-        double &r,double &g, double &b);
+
+    IMPEX void ControlPointErrorColour(const double cperr,
+                                       double &r, double &g, double &b);
 
     /** checks if file exists */
-    IMPEX bool FileExists(const std::string filename);
+    IMPEX bool FileExists(const std::string &filename);
 
     /** returns the full absolute filename */
-    IMPEX std::string GetAbsoluteFilename(const std::string filename);
-} // namespace
+    IMPEX std::string GetAbsoluteFilename(const std::string &filename);
 
+    /** return true, if file type by extension is supported by vigra */
+    IMPEX bool IsFileTypeSupported(const std::string &filename);
+
+    /** check if filename contains extension, if not add default extension */
+    IMPEX void EnforceExtension(std::string &filename, const std::string &defaultExtension);
+
+    /** returns the full path to the data directory */
+    IMPEX std::string GetDataDir();
+
+    /** returns the directory for user specific Hugin settings, e.g. lens database
+        the directory is automatically created if it does not exists
+        @return path, empty if path could not retrieved or not created */
+    IMPEX std::string GetUserAppDataDir();
+
+    /** Try to initalise GLUT and GLEW, and create an OpenGL context for GPU stitching.
+     * OpenGL extensions required by the GPU stitcher (-g option) are checked here.
+     * @return true if everything went OK, false if we can't use GPU mode.
+     */
+    IMPEX bool initGPU(int *argcp, char **argv);
+    /** cleanup GPU settings */
+    IMPEX bool wrapupGPU();
+    /** return a string with version numbers */
+    IMPEX std::string GetHuginVersion();
+    /** returns description of given icc profile */
+    IMPEX std::string GetICCDesc(const vigra::ImageImportInfo::ICCProfile &iccProfile);
+    IMPEX std::string GetICCDesc(const cmsHPROFILE &profile);
+
+} // namespace
 
 #endif // _HUGIN_UTILS_UTILS_H

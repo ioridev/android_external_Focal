@@ -22,14 +22,15 @@
  *  General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
 // for debugging
 #include <iostream>
 #include <stdio.h>
+#include <stdexcept>
 //#include <wx/wxprec.h>
 
 #include "SrcPanoImage.h"
@@ -39,10 +40,9 @@
 #include <vigra/diff2d.hxx>
 #include <vigra/imageinfo.hxx>
 #include <hugin_utils/utils.h>
-#include <exiv2/exif.hpp>
-#include <exiv2/image.hpp>
-#include <exiv2/easyaccess.hpp>
+#include <exiv2/exiv2.hpp>
 #include <lensdb/LensDB.h>
+#include "Exiv2Helper.h"
 
 #ifdef __FreeBSD__
 #define log2(x)        (log(x) / M_LN2)
@@ -52,13 +52,11 @@
 
 namespace HuginBase {
 
-using namespace hugin_utils;
-    
 void SrcPanoImage::resize(const vigra::Size2D & sz)
 {
         // TODO: check if images have the same orientation.
         // calculate scaling ratio
-        double scale = (double) sz.x / m_Size.getData().x;
+        const double scale = (double) sz.x / m_Size.getData().x;
         
         // center shift
         m_RadialDistortionCenterShift.setData(m_RadialDistortionCenterShift.getData() * scale);
@@ -72,15 +70,23 @@ void SrcPanoImage::resize(const vigra::Size2D & sz)
                 m_CropRect.setData(vigra::Rect2D(sz));
                 break;
             case CROP_RECTANGLE:
-                m_CropRect.setData(m_CropRect.getData() * scale);
-                m_CropRect.setData(m_CropRect.getData() & vigra::Rect2D(sz));
+                {
+                    vigra::Rect2D rect(m_CropRect.getData());
+                    rect *= scale;
+                    rect &= vigra::Rect2D(sz);
+                    m_CropRect.setData(rect);
+                }
                 break;
             case CROP_CIRCLE:
-                m_CropRect.setData(m_CropRect.getData() * scale);
+                {
+                    vigra::Rect2D rect(m_CropRect.getData());
+                    rect *= scale;
+                    m_CropRect.setData(rect);
+                }
                 break;
         }
         
-        m_Size = sz;
+        m_Size.setData(sz);
         // vignetting correction
         m_RadialVigCorrCenterShift.setData(m_RadialVigCorrCenterShift.getData() *scale);
         // resize masks
@@ -115,23 +121,6 @@ bool SrcPanoImage::horizontalWarpNeeded()
     return false;
 }
 
-void BaseSrcPanoImage::setDefaults()
-{
-    /* Some of the vectors are difficult to initalise with the variables list
-     * header, so we make some local variables which are used in it.
-     */
-    // Radial Distortion defaults
-    std::vector<double> distortion_default(4, 0.0);
-    distortion_default[3] = 1;
-    
-    std::vector<double> RadialVigCorrCoeff_default(4, 0.0);
-    RadialVigCorrCoeff_default[0] = 1;
-    HuginBase::MaskPolygonVector defaultMaskVector;
-#define image_variable( name, type, default_value ) m_##name.setData(default_value);
-#include "image_variables.h"
-#undef image_variable
-}
-
 bool SrcPanoImage::isInside(vigra::Point2D p, bool ignoreMasks) const
 {
     bool insideCrop=false;
@@ -146,12 +135,12 @@ bool SrcPanoImage::isInside(vigra::Point2D p, bool ignoreMasks) const
                 // outside image
                 return false;
             }
-            FDiff2D cropCenter;
+            hugin_utils::FDiff2D cropCenter;
             cropCenter.x = m_CropRect.getData().left() + m_CropRect.getData().width()/2.0;
             cropCenter.y = m_CropRect.getData().top() + m_CropRect.getData().height()/2.0;
             double radius2 = std::min(m_CropRect.getData().width()/2.0, m_CropRect.getData().height()/2.0);
             radius2 = radius2 * radius2;
-            FDiff2D pf = FDiff2D(p) - cropCenter;
+            hugin_utils::FDiff2D pf = hugin_utils::FDiff2D(p) - cropCenter;
             insideCrop = (radius2 > pf.x*pf.x+pf.y*pf.y );
         }
     }
@@ -177,12 +166,16 @@ bool SrcPanoImage::getCorrectTCA() const
 }
 
 
-FDiff2D SrcPanoImage::getRadialDistortionCenter() const
-{ return FDiff2D(m_Size.getData())/2.0 + m_RadialDistortionCenterShift.getData(); }
+hugin_utils::FDiff2D SrcPanoImage::getRadialDistortionCenter() const
+{
+    return hugin_utils::FDiff2D(m_Size.getData()) / 2.0 + m_RadialDistortionCenterShift.getData();
+}
 
 
-FDiff2D SrcPanoImage::getRadialVigCorrCenter() const
-{ return (FDiff2D(m_Size.getData())-FDiff2D(1,1))/2.0 + m_RadialVigCorrCenterShift.getData(); }
+hugin_utils::FDiff2D SrcPanoImage::getRadialVigCorrCenter() const
+{
+    return (hugin_utils::FDiff2D(m_Size.getData()) - hugin_utils::FDiff2D(1, 1)) / 2.0 + m_RadialVigCorrCenterShift.getData();
+}
 
 void SrcPanoImage::setCropMode(CropMode val)
 {
@@ -204,7 +197,7 @@ double SrcPanoImage::getExposure() const
 { return 1.0/pow(2.0, m_ExposureValue.getData()); }
 
 void SrcPanoImage::setExposure(const double & val)
-{ m_ExposureValue = log2(1/val); }
+{ m_ExposureValue.setData(log2(1/val)); }
 
 
 bool BaseSrcPanoImage::operator==(const BaseSrcPanoImage & other) const
@@ -223,7 +216,7 @@ bool BaseSrcPanoImage::operator==(const BaseSrcPanoImage & other) const
 double SrcPanoImage::getVar(const std::string & code) const
 {
     DEBUG_TRACE("");
-    assert(code.size() > 0);
+    assert(!code.empty());
 #define image_variable( name, type, default_value ) \
     if (PTOVariableConverterFor##name::checkApplicability(code)) \
         return PTOVariableConverterFor##name::getValueFromVariable(code, m_##name );\
@@ -239,7 +232,7 @@ double SrcPanoImage::getVar(const std::string & code) const
 void SrcPanoImage::setVar(const std::string & code, double val)
 {
     DEBUG_TRACE("Var:" << code << " value: " << val);
-    assert(code.size() > 0);
+    assert(!code.empty());
 #define image_variable( name, type, default_value ) \
     if (PTOVariableConverterFor##name::checkApplicability(code)) \
         {PTOVariableConverterFor##name::setValueFromVariable(code, m_##name, val);}\
@@ -268,145 +261,201 @@ VariableMap SrcPanoImage::getVariableMap() const
     return vars;
 }
 
-bool SrcPanoImage::readEXIF(double & focalLength, double & cropFactor, bool applyEXIFValues, bool applyExposureValue)
+bool SrcPanoImage::checkImageSizeKnown()
 {
-    double eV=0;
-    return readEXIF(focalLength,cropFactor,eV,applyEXIFValues, applyExposureValue);
+    if(getWidth()<=0 || getHeight()<=0)
+    {
+        try
+        {
+            vigra::ImageImportInfo info(getFilename().c_str());
+            setSize(info.size());
+            // save pixeltype for later, so we don't need to parse the file again
+            const std::string pixeltype(info.getPixelType());
+            FileMetaData metaData = getFileMetadata();
+            metaData["pixeltype"] = pixeltype;
+            setFileMetadata(metaData);
+        }
+        catch(std::exception & )
+        {
+            return false;
+        }
+    };
+    return true;
+
 };
 
-bool SrcPanoImage::readEXIF(double & focalLength, double & cropFactor, double & eV, bool applyEXIFValues, bool applyExposureValue)
+bool SrcPanoImage::readEXIF()
 {
     std::string filename = getFilename();
-    std::string ext = hugin_utils::getExtension(filename);
-    std::transform(ext.begin(), ext.end(), ext.begin(), (int(*)(int)) toupper);
-
     double roll = 0;
-    //double eV = 0;
-    float isoSpeed = 0;
-    float photoFNumber = 0;
-    float exposureTime = 0;
-    float subjectDistance = 0;
+    // clear all old values
+    setFileMetadata(FileMetaData());
+    setExifExposureTime(0);
+    setExifAperture(0);
+    setExifExposureMode(0);
+    setExifISO(0);
+    setExifMake(std::string(""));
+    setExifModel(std::string(""));
+    setExifLens(std::string(""));
+    setExifOrientation(0);
+    setExifFocalLength(0);
+    setExifFocalLength35(0);
+    setExifCropFactor(0);
+    setExifDistance(0);
+    setExifDate(std::string(""));
+    setExifRedBalance(1);
+    setExifBlueBalance(1);
 
-    int width;
-    int height;
-    try {
-        vigra::ImageImportInfo info(filename.c_str());
-        width = info.width();
-        height = info.height();
-    } catch(std::exception & ) {
+    if(!checkImageSizeKnown())
+    {
         return false;
-    }
+    };
 
-    // Setup image with default values
-    setSize(vigra::Size2D(width, height));
-    if (applyEXIFValues && focalLength > 0 && cropFactor > 0) {
-        setHFOV(calcHFOV(getProjection(),
-        focalLength, cropFactor, getSize()));
-    }
+    // if width==2*height assume equirectangular image
+    if (getWidth() == 2 * getHeight())
+    {
+        FileMetaData metaData = getFileMetadata();
+        metaData["projection"] = "equirectangular";
+        metaData["HFOV"] = "360";
+        setFileMetadata(metaData);
+    };
 
+#if defined EXIV2_VERSION && EXIV2_TEST_VERSION(0,27,99)
+    Exiv2::Image::UniquePtr image;
+#else
     Exiv2::Image::AutoPtr image;
+#endif
     try {
         image = Exiv2::ImageFactory::open(filename.c_str());
-    }catch(...) {
-        std::cerr << __FILE__ << " " << __LINE__ << " Error opening file" << std::endl;
-        return false;
     }
-    if (image.get() == 0) {
-        std::cerr << "Unable to open file to read EXIF data: " << filename << std::endl;
-        return false;
-    }
-
-    image->readMetadata();
-    Exiv2::ExifData &exifData = image->exifData();
-    if (exifData.empty()) {
-        std::cerr << "Unable to read EXIF data from opened file:" << filename << std::endl;
+    catch (const Exiv2::Error& e)
+    {
+        std::cerr << "Exiv2: Error reading metadata (" << e.what() << ")" << std::endl;
         return false;
     }
 
-    getExiv2Value(exifData,"Exif.Photo.ExposureTime",exposureTime);
-    // TODO: reconstruct real exposure value from "rounded" ones saved by the cameras?
-
-    getExiv2Value(exifData,"Exif.Photo.FNumber",photoFNumber);
-    
-    //remember aperture for later
-    setExifAperture(photoFNumber);
-    
-    //read exposure mode
-    long exposureMode=0;
-    getExiv2Value(exifData,"Exif.Photo.ExposureMode",exposureMode);
-    setExifExposureMode((int)exposureMode);
-
-    //if no F-number was found in EXIF data assume a f stop of 3.5 to get
-    //a reasonable ev value if shutter time, e. g. for manual lenses is found
-    if(photoFNumber==0)
+    try
     {
-        photoFNumber=3.5;
-    };
-    if (exposureTime > 0 && photoFNumber > 0) {
-        double gain = 1;
-        if (getExiv2Value(exifData,"Exif.Photo.ISOSpeedRatings",isoSpeed)) {
-            if (isoSpeed > 0) {
-                gain = isoSpeed / 100.0;
-            }
-        }
-        eV = log2(photoFNumber * photoFNumber / (gain * exposureTime));
-        DEBUG_DEBUG ("Ev: " << eV);
+        image->readMetadata();
     }
-
-    Exiv2::ExifKey key("Exif.Image.Make");
-    Exiv2::ExifData::iterator itr = exifData.findKey(key);
-    if (itr != exifData.end()) {
-        setExifMake(itr->toString());
-    } else {
-        setExifMake("");
-    }
-
-    Exiv2::ExifKey key2("Exif.Image.Model");
-    itr = exifData.findKey(key2);
-    if (itr != exifData.end()) {
-        setExifModel(itr->toString());
-    } else {
-        setExifModel("");
-    }
-
-    //reading lens
-    // first we are reading LensModel in Exif section, this is only available
-    // with EXIF >= 2.3
-    std::string lensName;
-#if EXIV2_TEST_VERSION(0,22,0)
-    //the string "Exif.Photo.LensModel" is only defined in exiv2 0.22.0 and above
-    if(getExiv2Value(exifData,"Exif.Photo.LensModel",lensName))
-#else
-    if(getExiv2Value(exifData,0xa434,"Photo",lensName))
-#endif
+    catch (const Exiv2::Error& e)
     {
-        if(lensName.length()>0)
-        {
-            setExifLens(lensName);
-        }
-        else
-        {
-            setExifLens("");
-        }
+        std::cerr << "Caught Exiv2 exception '" << e.what() << "' for file " << filename << std::endl;
+        return false;
     }
-    else
+
+    // look into XMP metadata
+    Exiv2::XmpData& xmpData = image->xmpData();
+    if (!xmpData.empty())
     {
-        //no lens in Exif found, now look in makernotes
-        Exiv2::ExifData::const_iterator itr2 = Exiv2::lensName(exifData);
-        if (itr2!=exifData.end() && itr2->count())
+        // we need to catch exceptions in case file does not contain any GPano tags
+        try
         {
-            //we are using prettyPrint function to get string of lens name
-            //it2->toString returns for many cameras only an ID number
-            setExifLens(itr2->print(&exifData));
+            Exiv2::XmpData::iterator pos = xmpData.findKey(Exiv2::XmpKey("Xmp.GPano.ProjectionType"));
+            FileMetaData metaData = getFileMetadata();
+            if (pos != xmpData.end())
+            {
+                if (hugin_utils::tolower(pos->toString()) == "equirectangular")
+                {
+                    long croppedWidth = 0;
+                    long croppedHeight = 0;
+                    pos = xmpData.findKey(Exiv2::XmpKey("Xmp.GPano.CroppedAreaImageWidthPixels"));
+                    if (pos != xmpData.end())
+                    {
+                        croppedWidth = pos->toLong();
+                    }
+                    else
+                    {
+                        // tag is required
+                        throw std::logic_error("Required tag CroppedAreaImageWidthPixels missing");
+                    };
+                    pos = xmpData.findKey(Exiv2::XmpKey("Xmp.GPano.CroppedAreaImageHeightPixels"));
+                    if (pos != xmpData.end())
+                    {
+                        croppedHeight = pos->toLong();
+                    }
+                    else
+                    {
+                        // tag is required
+                        throw std::logic_error("Required tag CroppedAreaImageHeightPixels missing");
+                    };
+                    // check if sizes matches, if not ignore all tags
+                    if (getWidth() == croppedWidth && getHeight() == croppedHeight)
+                    {
+                        pos = xmpData.findKey(Exiv2::XmpKey("Xmp.GPano.FullPanoWidthPixels"));
+                        double hfov = 0;
+                        if (pos != xmpData.end())
+                        {
+                            hfov = 360 * croppedWidth / (double)pos->toLong();
+                        }
+                        else
+                        {
+                            // tag is required
+                            throw std::logic_error("Required tag FullPanoWidthPixels missing");
+                        };
+                        long fullHeight = 0;
+                        pos = xmpData.findKey(Exiv2::XmpKey("Xmp.GPano.FullPanoHeightPixels"));
+                        if (pos != xmpData.end())
+                        {
+                            fullHeight = pos->toLong();
+                        }
+                        else
+                        {
+                            // tag is required
+                            throw std::logic_error("Required tag FullPanoHeightPixels missing");
+                        };
+                        long cropTop = 0;
+                        pos = xmpData.findKey(Exiv2::XmpKey("Xmp.GPano.CroppedAreaTopPixels"));
+                        if (pos != xmpData.end())
+                        {
+                            cropTop = pos->toLong();
+                        }
+                        else
+                        {
+                            // tag is required
+                            throw std::logic_error("Required tag CroppedAreaTopPixels missing");
+                        };
+
+                        // all found, remember for later
+                        metaData["projection"] = "equirectangular";
+                        metaData["HFOV"] = hugin_utils::doubleToString(hfov, 3);
+                        metaData["e"] = hugin_utils::doubleToString(-cropTop - ((getHeight() - fullHeight) / 2.0), 4);
+                        setFileMetadata(metaData);
+                    };
+                };
+            };
         }
-        else
+        catch (std::exception& e)
         {
-            setExifLens("");
+            // just to catch error when image contains no GPano tags
+            std::cerr << "Error reading GPano tags from " << filename << "(" << e.what() << ")" << std::endl;
         };
     };
 
-    long orientation = 0;
-    if (getExiv2Value(exifData,"Exif.Image.Orientation",orientation) && trustExivOrientation()) {
+    Exiv2::ExifData &exifData = image->exifData();
+    if (exifData.empty()) {
+        std::cerr << "Unable to read EXIF data from opened file:" << filename << std::endl;
+        return !getFileMetadata().empty();
+    }
+
+    setExifExposureTime(Exiv2Helper::getExiv2ValueDouble(exifData, Exiv2::exposureTime(exifData)));
+    setExifAperture(Exiv2Helper::getExiv2ValueDouble(exifData, Exiv2::fNumber(exifData)));
+    
+    //read exposure mode
+    setExifExposureMode(Exiv2Helper::getExiv2ValueLong(exifData, "Exif.Photo.ExposureMode"));
+
+    // read ISO from EXIF or makernotes
+    setExifISO(Exiv2Helper::getExiv2ValueDouble(exifData, Exiv2::isoSpeed(exifData)));
+
+    setExifMake(Exiv2Helper::getExiv2ValueString(exifData, Exiv2::make(exifData)));
+    setExifModel(Exiv2Helper::getExiv2ValueString(exifData, Exiv2::model(exifData)));
+
+    //reading lens
+    setExifLens(Exiv2Helper::getLensName(exifData));
+
+    long orientation = Exiv2Helper::getExiv2ValueLong(exifData, "Exif.Image.Orientation");
+    if (orientation>0 && trustExivOrientation())
+    {
         switch (orientation) {
             case 3:  // rotate 180
                 roll = 180;
@@ -422,233 +471,167 @@ bool SrcPanoImage::readEXIF(double & focalLength, double & cropFactor, double & 
         }
     }
 
-    long pixXdim = 0;
-    getExiv2Value(exifData,"Exif.Photo.PixelXDimension",pixXdim);
+    long pixXdim = Exiv2Helper::getExiv2ValueLong(exifData,"Exif.Photo.PixelXDimension");
+    long pixYdim = Exiv2Helper::getExiv2ValueLong(exifData,"Exif.Photo.PixelYDimension");
 
-    long pixYdim = 0;
-    getExiv2Value(exifData,"Exif.Photo.PixelYDimension",pixYdim);
-
-    if (pixXdim !=0 && pixYdim !=0 ) {
+    if (pixXdim !=0 && pixYdim !=0 )
+    {
         double ratioExif = pixXdim/(double)pixYdim;
-        double ratioImage = width/(double)height;
-        if (fabs( ratioExif - ratioImage) > 0.1) {
+        double ratioImage = getWidth()/(double)getHeight();
+        if (fabs( ratioExif - ratioImage) > 0.1)
+        {
             // Image has been modified without adjusting exif tags.
             // Assume user has rotated to upright pose
             roll = 0;
         }
     }
+    // save for later
+    setExifOrientation(roll);
     
-    //GWP - CCD info was previously computed by the jhead library.  Migration
-    //      to exiv2 means we do it here
-    
-    // some cameras do not provide Exif.Image.ImageWidth / Length
-    // notably some Olympus
-    
-    long eWidth = 0;
-    getExiv2Value(exifData,"Exif.Image.ImageWidth",eWidth);
-
-    long eLength = 0;
-    getExiv2Value(exifData,"Exif.Image.ImageLength",eLength);
-
-    double sensorPixelWidth = 0;
-    double sensorPixelHeight = 0;
-    if (eWidth > 0 && eLength > 0) {
-        sensorPixelHeight = (double)eLength;
-        sensorPixelWidth = (double)eWidth;
-    } else {
-        // No EXIF information, use number of pixels in image
-        sensorPixelWidth = width;
-        sensorPixelHeight = height;
-    }
-
-    // force landscape sensor orientation
-    if (sensorPixelWidth < sensorPixelHeight ) {
-        double t = sensorPixelWidth;
-        sensorPixelWidth = sensorPixelHeight;
-        sensorPixelHeight = t;
-    }
-
-    DEBUG_DEBUG("sensorPixelWidth: " << sensorPixelWidth);
-    DEBUG_DEBUG("sensorPixelHeight: " << sensorPixelHeight);
-
-    // some cameras do not provide Exif.Photo.FocalPlaneResolutionUnit
-    // notably some Olympus
-
-    long exifResolutionUnits = 0;
-    getExiv2Value(exifData,"Exif.Photo.FocalPlaneResolutionUnit",exifResolutionUnits);
-
-    float resolutionUnits= 0;
-    switch (exifResolutionUnits) {
-        case 3: resolutionUnits = 10.0; break;  //centimeter
-        case 4: resolutionUnits = 1.0; break;   //millimeter
-        case 5: resolutionUnits = .001; break;  //micrometer
-        default: resolutionUnits = 25.4; break; //inches
-    }
-
-    DEBUG_DEBUG("Resolution Units: " << resolutionUnits);
-
-    // some cameras do not provide Exif.Photo.FocalPlaneXResolution and
-    // Exif.Photo.FocalPlaneYResolution, notably some Olympus
-
-    float fplaneXresolution = 0;
-    getExiv2Value(exifData,"Exif.Photo.FocalPlaneXResolution",fplaneXresolution);
-
-    float fplaneYresolution = 0;
-    getExiv2Value(exifData,"Exif.Photo.FocalPlaneYResolution",fplaneYresolution);
-
-    float CCDWidth = 0;
-    if (fplaneXresolution != 0) { 
-//        CCDWidth = (float)(sensorPixelWidth * resolutionUnits / 
-//                fplaneXresolution);
-        CCDWidth = (float)(sensorPixelWidth / ( fplaneXresolution / resolutionUnits));
-    }
-
-    float CCDHeight = 0;
-    if (fplaneYresolution != 0) {
-        CCDHeight = (float)(sensorPixelHeight / ( fplaneYresolution / resolutionUnits));
-    }
-
-    DEBUG_DEBUG("CCDHeight:" << CCDHeight);
-    DEBUG_DEBUG("CCDWidth: " << CCDWidth);
-
-    // calc sensor dimensions if not set and 35mm focal length is available
-    FDiff2D sensorSize;
-
-    if (CCDHeight > 0 && CCDWidth > 0) {
-        // read sensor size directly.
-        sensorSize.x = CCDWidth;
-        sensorSize.y = CCDHeight;
-        if (getExifModel() == "Canon EOS 20D") {
-            // special case for buggy 20D camera
-            sensorSize.x = 22.5;
-            sensorSize.y = 15;
-        }
-        //
-        // check if sensor size ratio and image size fit together
-        double rsensor = (double)sensorSize.x / sensorSize.y;
-        double rimg = (double) width / height;
-        if ( (rsensor > 1 && rimg < 1) || (rsensor < 1 && rimg > 1) ) {
-            // image and sensor ratio do not match
-            // swap sensor sizes
-            float t;
-            t = sensorSize.y;
-            sensorSize.y = sensorSize.x;
-            sensorSize.x = t;
-        }
-
-        DEBUG_DEBUG("sensorSize.y: " << sensorSize.y);
-        DEBUG_DEBUG("sensorSize.x: " << sensorSize.x);
-
-        cropFactor = sqrt(36.0*36.0+24.0*24.0) /
-            sqrt(sensorSize.x*sensorSize.x + sensorSize.y*sensorSize.y);
-        // FIXME: HACK guard against invalid image focal plane definition in EXIF metadata with arbitrarly chosen limits for the crop factor ( 1/100 < crop < 100)
-        if (cropFactor < 0.01 || cropFactor > 100) {
-            cropFactor = 0;
-        }
-    } else {
-        // alternative way to calculate the crop factor for Olympus cameras
-
-        // Windows debug stuff
-        // left in as example on how to get "console output"
-        // written to a log file    
-        // freopen ("oly.log","a",stdout);
-        // fprintf (stdout,"Starting Alternative crop determination\n");
-        
-        float olyFPD = 0;
-        getExiv2Value(exifData,"Exif.Olympus.FocalPlaneDiagonal",olyFPD);
-
-        if (olyFPD > 0.0) {        
-            // Windows debug stuff
-            // fprintf(stdout,"Oly_FPD:");
-            // fprintf(stdout,"%f",olyFPD);
-            cropFactor = sqrt(36.0*36.0+24.0*24.0) / olyFPD;
-        }
-        else {
-            // for newer Olympus cameras the FocalPlaneDiagonal tag was moved into
-            // equipment (sub?)-directory, so check also there
-            getExiv2Value(exifData,"Exif.OlympusEq.FocalPlaneDiagonal",olyFPD);
-            if (olyFPD > 0.0) {
-                cropFactor = sqrt(36.0*36.0+24.0*24.0) / olyFPD;
-            };
-        };
-   
-    }
+    double cropFactor = 0;
     DEBUG_DEBUG("cropFactor: " << cropFactor);
 
-    float eFocalLength = 0;
-    getExiv2Value(exifData,"Exif.Photo.FocalLength",eFocalLength);
-
-    float eFocalLength35 = 0;
-    getExiv2Value(exifData,"Exif.Photo.FocalLengthIn35mmFilm",eFocalLength35);
-
+    float eFocalLength = Exiv2Helper::getExiv2ValueDouble(exifData, Exiv2::focalLength(exifData));
+    float eFocalLength35 = Exiv2Helper::getExiv2ValueLong(exifData,"Exif.Photo.FocalLengthIn35mmFilm");
+    float focalLength=0;
     //The various methods to detmine crop factor
-    if (eFocalLength > 0 && cropFactor > 0) {
-        // user provided crop factor
-        focalLength = eFocalLength;
-    } else if (eFocalLength35 > 0 && eFocalLength > 0) {
+    if (eFocalLength35 > 0 && eFocalLength > 0)
+    {
         cropFactor = eFocalLength35 / eFocalLength;
         focalLength = eFocalLength;
-    } else if (eFocalLength35 > 0) {
-        // 35 mm equiv focal length available, crop factor unknown.
-        // do not ask for crop factor, assume 1.  Probably a full frame sensor
-        cropFactor = 1;
-        focalLength = eFocalLength35;
-    } else if (eFocalLength > 0 && cropFactor <= 0) {
-        // need to redo, this time with crop
-        focalLength = eFocalLength;
-        cropFactor = 0;
     }
-    getExiv2Value(exifData,"Exif.Photo.SubjectDistance", subjectDistance);
-
-    std::string captureDate;
-    getExiv2Value(exifData,"Exif.Photo.DateTimeOriginal",captureDate);
-
-
-    // store some important EXIF tags for later usage.
+    else
+    {
+        if (eFocalLength35 > 0)
+        {
+            // 35 mm equiv focal length available, crop factor unknown.
+            // do not ask for crop factor, assume 1.  Probably a full frame sensor
+            cropFactor = 1;
+            focalLength = eFocalLength35;
+        }
+        else
+        {
+            focalLength = (eFocalLength > 0) ? eFocalLength : 0;
+            // alternative way to calculate crop factor
+            cropFactor = Exiv2Helper::getCropFactor(exifData, getWidth(), getHeight());
+            // check result
+            if (cropFactor < 0.1)
+            {
+                cropFactor = 0;
+            };
+        };
+    };
+    // check results, if 35 mm focal length is too small reset crop factor to 0
+    if (focalLength > 0 && cropFactor > 0 && focalLength*cropFactor < 6)
+    {
+        cropFactor = 0;
+        // check alternative way to calculate crop factor, e.g. when focal length and focal length in 35 mm are given
+        // and are the same, but not a full frame camera
+        const double newCropFactor = Exiv2Helper::getCropFactor(exifData, getWidth(), getHeight());
+        if (newCropFactor > 0)
+        {
+            if (focalLength*newCropFactor >= 6)
+            {
+                cropFactor = newCropFactor;
+            }
+        };
+    };
+ 
     setExifFocalLength(focalLength);
     setExifFocalLength35(eFocalLength35);
-    setExifOrientation(roll);
-    setExifISO(isoSpeed);
-    setExifDistance(subjectDistance);
-    setExifDate(captureDate);
-    setExifExposureTime(exposureTime);
+    setExifCropFactor(cropFactor);
+
+    setExifDistance(Exiv2Helper::getExiv2ValueDouble(exifData, Exiv2::subjectDistance(exifData)));
+    setExifDate(Exiv2Helper::getExiv2ValueString(exifData, "Exif.Photo.DateTimeOriginal"));
+
+    double redBalance, blueBalance;
+    Exiv2Helper::readRedBlueBalance(exifData, redBalance, blueBalance);
+    setExifRedBalance(redBalance);
+    setExifBlueBalance(blueBalance);
 
     DEBUG_DEBUG("Results for:" << filename);
     DEBUG_DEBUG("Focal Length: " << getExifFocalLength());
-    DEBUG_DEBUG("Crop Factor:  " << getExifCropFactor());
+    DEBUG_DEBUG("Crop Factor:  " << getCropFactor());
     DEBUG_DEBUG("Roll:         " << getExifOrientation());
 
-    // Update image with computed values from EXIF
-    if (applyEXIFValues) {
-        setRoll(roll);
-        if (applyExposureValue)
-            setExposureValue(eV);
-        if(cropFactor>0)
-        {
-            setExifCropFactor(cropFactor);
-        };
-        if (focalLength > 0 && cropFactor > 0) {
-            setHFOV(calcHFOV(getProjection(), focalLength, cropFactor, getSize()));
-            DEBUG_DEBUG("HFOV:         " << getHFOV());
-            return true;
-        } else {
-            return false;
-        }
-    }
     return true;
+}
+
+bool SrcPanoImage::applyEXIFValues(bool applyEVValue)
+{
+    setRoll(getExifOrientation());
+    if(applyEVValue)
+    {
+        setExposureValue(calcExifExposureValue());
+    };
+    // special handling for GPano tags
+    FileMetaData metaData = getFileMetadata();
+    if (!metaData.empty())
+    {
+        FileMetaData::const_iterator pos = metaData.find("projection");
+        if (pos != metaData.end())
+        {
+            if (pos->second == "equirectangular")
+            {
+                pos = metaData.find("HFOV");
+                if (pos != metaData.end())
+                {
+                    double hfov = 0;
+                    hugin_utils::stringToDouble(pos->second, hfov);
+                    double e = 0;
+                    pos = metaData.find("e");
+                    if (pos != metaData.end())
+                    {
+                        hugin_utils::stringToDouble(pos->second, e);
+                    };
+                    if (hfov != 0)
+                    {
+                        setProjection(EQUIRECTANGULAR);
+                        setHFOV(hfov);
+                        setCropFactor(1.0);
+                        hugin_utils::FDiff2D p = getRadialDistortionCenterShift();
+                        p.y = e;
+                        setRadialDistortionCenterShift(p);
+                        return true;
+                    };
+                };
+            };
+        };
+    };
+    double cropFactor=getExifCropFactor();
+    double focalLength=getExifFocalLength();
+    if(cropFactor>0.1)
+    {
+        setCropFactor(cropFactor);
+    };
+    if (focalLength > 0 && cropFactor > 0.1)
+    {
+        setHFOV(calcHFOV(getProjection(), focalLength, cropFactor, getSize()));
+        DEBUG_DEBUG("HFOV:         " << getHFOV());
+        return true;
+    }
+    else
+    {
+        return false;
+    }
 }
 
 bool SrcPanoImage::readCropfactorFromDB()
 {
-    // finally search in lensfun database
-    if(getExifCropFactor()<=0 && !getExifMake().empty() && !getExifModel().empty())
+    // finally search in lens database
+    if(getCropFactor()<0.1 && !getExifMake().empty() && !getExifModel().empty())
     {
         double dbCrop=0;
         if(LensDB::LensDB::GetSingleton().GetCropFactor(getExifMake(),getExifModel(),dbCrop))
         {
-            if(dbCrop>0)
+            if(dbCrop>0.1)
             {
+                setCropFactor(dbCrop);
                 setExifCropFactor(dbCrop);
+                if (getExifFocalLength() > 0)
+                {
+                    setHFOV(calcHFOV(getProjection(), getExifFocalLength(), dbCrop, getSize()));
+                };
                 return true;
             };
         };
@@ -656,120 +639,152 @@ bool SrcPanoImage::readCropfactorFromDB()
     return false;
 };
 
-bool SrcPanoImage::readProjectionFromDB()
+std::string SrcPanoImage::getDBLensName() const
+{
+    std::string lens(getExifLens());
+    if (!lens.empty())
+    {
+        return lens;
+    }
+    lens = getExifMake();
+    if (!lens.empty())
+    {
+        if (!getExifModel().empty())
+        {
+            lens.append("|");
+            lens.append(getExifModel());
+            return lens;
+        };
+    };
+    return std::string();
+};
+
+bool isFisheye(const BaseSrcPanoImage::Projection& proj)
+{
+    switch (proj)
+    {
+        case BaseSrcPanoImage::CIRCULAR_FISHEYE:
+        case BaseSrcPanoImage::FULL_FRAME_FISHEYE:
+        case BaseSrcPanoImage::FISHEYE_ORTHOGRAPHIC:
+        case BaseSrcPanoImage::FISHEYE_STEREOGRAPHIC:
+        case BaseSrcPanoImage::FISHEYE_EQUISOLID:
+        case BaseSrcPanoImage::FISHEYE_THOBY:
+            return true;
+        default:
+            return false;
+    };
+    return false;
+};
+
+bool SrcPanoImage::readProjectionFromDB(const bool ignoreFovRectilinear)
 {
     bool success=false;
-    if(!getExifLens().empty())
+    double oldFocal = 0;
+    const std::string lensname = getDBLensName();
+    const double focal = getExifFocalLength();
+    if (!lensname.empty())
     {
-        LensDB::LensDB& lensDB=LensDB::LensDB::GetSingleton();
-        if(lensDB.FindLens(getExifMake(), getExifModel(), getExifLens()))
+        const LensDB::LensDB& lensDB=LensDB::LensDB::GetSingleton();
+        Projection dbProjection;
+        if(lensDB.GetProjection(lensname, dbProjection))
         {
-            Projection dbProjection;
-            if(lensDB.GetProjection(dbProjection))
+            oldFocal = calcFocalLength(getProjection(), getHFOV(), getCropFactor(), getSize());
+            setProjection(dbProjection);
+            success = true;
+        };
+        if (focal>0)
+        {
+            double fov;
+            // read fov only for non rectilinear images
+            // for these relay on the EXIF data, because often user manage to store
+            // wrong values in the database, so ignore them for rectilinear images
+            if ((getProjection() != RECTILINEAR || !ignoreFovRectilinear) && lensDB.GetFov(lensname, focal, fov))
             {
-                setProjection(dbProjection);
-                success=true;
-            };
-            if(getExifFocalLength()>0)
-            {
-                CropMode dbCropMode;
-                FDiff2D cropLeftTop;
-                FDiff2D cropRightBottom;
-                if(lensDB.GetCrop(getExifFocalLength(),dbCropMode,cropLeftTop,cropRightBottom))
-                {
-                    switch(dbCropMode)
+                // calculate FOV for given image, take different aspect ratios into account
+                const double newFocal = calcFocalLength(getProjection(), fov, getCropFactor(), vigra::Size2D(3000, 2000));
+                const double newFov = calcHFOV(getProjection(), newFocal, getCropFactor(), getSize());
+                setHFOV(newFov);
+                oldFocal = 0;
+                // for fisheye lenses read also automatically the distortions parameters from lens db
+                // because fisheye often don't follow exactly one of the projection models and need
+                // the distortion parameters to model the real projection of the used fisheye lens
+                if(isFisheye(getProjection()))
+                { 
+                    std::vector<double> dist;
+                    if (lensDB.GetDistortion(lensname, focal, dist))
                     {
-                        case NO_CROP:
-                            setCropMode(NO_CROP);
-                            break;
-                        case CROP_CIRCLE:
-                            if(isCircularCrop())
-                            {
-                                setCropMode(CROP_CIRCLE);
-                                int width=getSize().width();
-                                int height=getSize().height();
-                                if(width>height)
-                                {
-                                    setCropRect(vigra::Rect2D(cropLeftTop.x*width,cropLeftTop.y*height,cropRightBottom.x*width,cropRightBottom.y*height));
-                                }
-                                else
-                                {
-                                    setCropRect(vigra::Rect2D((1.0-cropRightBottom.y)*width,cropLeftTop.x*height,(1.0-cropLeftTop.y)*width,cropRightBottom.x*height));
-                                };
-                            };
-                            break;
-                        case CROP_RECTANGLE:
-                            if(!isCircularCrop())
-                            {
-                                int width=getSize().width();
-                                int height=getSize().height();
-                                setCropMode(CROP_RECTANGLE);
-                                if(width>height)
-                                {
-                                    setCropRect(vigra::Rect2D(cropLeftTop.x*width,cropLeftTop.y*height,cropRightBottom.x*width,cropRightBottom.y*height));
-                                }
-                                else
-                                {
-                                    setCropRect(vigra::Rect2D((1.0-cropRightBottom.y)*width,cropLeftTop.x*height,(1.0-cropLeftTop.y*width),cropRightBottom.x*height));
-                                };
-                                fprintf(stdout,"crop rect set: %f,%f-%f,%f \n",getCropRect().left(),getCropRect().top(),getCropRect().right(),getCropRect().bottom());
-
-                            };
-                            break;
+                        if (dist.size() == 3)
+                        {
+                            dist.push_back(1.0 - dist[0] - dist[1] - dist[2]);
+                            setRadialDistortion(dist);
+                        };
                     };
                 };
             };
+            vigra::Rect2D dbCropRect;
+            if (lensDB.GetCrop(lensname, focal, getSize(), dbCropRect))
+            {
+                setCropMode(isCircularCrop() ? CROP_CIRCLE : CROP_RECTANGLE);
+                setCropRect(dbCropRect);
+            };
+        };
+        // updated fov after changing projection, if not already done with value from database
+        if (success && oldFocal > 0)
+        {
+            const double newFov = calcHFOV(getProjection(), oldFocal, getCropFactor(), getSize());
+            setHFOV(newFov);
         };
     };
+    // store information about reading from database in FileMetadata map
+    if (success)
+    {
+        FileMetaData metaData = getFileMetadata();
+        metaData["readProjectionFromDB"] = "true";
+        setFileMetadata(metaData);
+    };
+
     return success;
 };
 
 bool SrcPanoImage::readDistortionFromDB()
 {
-    bool success=false;
-    if(!getExifLens().empty() || (!getExifMake().empty() && !getExifModel().empty()))
+    const std::string lensname = getDBLensName();
+    const double focal = getExifFocalLength();
+    if (!lensname.empty() && focal > 0)
     {
-        LensDB::LensDB& lensDB=LensDB::LensDB::GetSingleton();
-        if(lensDB.FindLens(getExifMake(), getExifModel(), getExifLens()))
+        const LensDB::LensDB& lensDB=LensDB::LensDB::GetSingleton();
+        std::vector<double> dist;
+        if(lensDB.GetDistortion(lensname, focal, dist))
         {
-            if(getExifFocalLength()>0)
+            if(dist.size()==3)
             {
-                std::vector<double> dist;
-                if(lensDB.GetDistortion(getExifFocalLength(),dist))
-                {
-                    if(dist.size()==3)
-                    {
-                        dist.push_back(1.0-dist[0]-dist[1]-dist[2]);
-                        setRadialDistortion(dist);
-                        success=true;
-                    };
-                };
+                dist.push_back(1.0-dist[0]-dist[1]-dist[2]);
+                setRadialDistortion(dist);
+                return true;
             };
         };
     };
-    return success;
+    return false;
 };
 
 bool SrcPanoImage::readVignettingFromDB()
 {
-    bool success=false;
-    if(!getExifLens().empty() || (!getExifMake().empty() && !getExifModel().empty()))
+    const std::string lensname = getDBLensName();
+    const double focal = getExifFocalLength();
+    if (!lensname.empty() && focal > 0)
     {
-        LensDB::LensDB& lensDB=LensDB::LensDB::GetSingleton();
-        if(lensDB.FindLens(getExifMake(), getExifModel(), getExifLens()))
+        const LensDB::LensDB& lensDB=LensDB::LensDB::GetSingleton();
+        std::vector<double> vig;
+        if(lensDB.GetVignetting(lensname, focal, getExifAperture(), getExifDistance(), vig))
         {
-            if(getExifFocalLength()>0)
+            if (vig.size() == 4)
             {
-                std::vector<double> vig;
-                if(lensDB.GetVignetting(getExifFocalLength(),getExifAperture(),getExifDistance(),vig))
-                {
-                    setRadialVigCorrCoeff(vig);
-                    success=true;
-                };
+                setRadialVigCorrCoeff(vig);
+                return true;
             };
         };
     };
-    return success;
+    return false;
 };
 
 double SrcPanoImage::calcHFOV(SrcPanoImage::Projection proj, double fl, double crop, vigra::Size2D imageSize)
@@ -780,7 +795,7 @@ double SrcPanoImage::calcHFOV(SrcPanoImage::Projection proj, double fl, double c
     
     // calculate the sensor width and height that fit the ratio
     // the ratio is determined by the size of our image.
-    FDiff2D sensorSize;
+    hugin_utils::FDiff2D sensorSize;
     sensorSize.x = d / sqrt(1 + 1/(r*r));
     sensorSize.y = sensorSize.x / r;
     
@@ -831,7 +846,7 @@ double SrcPanoImage::calcFocalLength(SrcPanoImage::Projection proj, double hfov,
     
     // calculate the sensor width and height that fit the ratio
     // the ratio is determined by the size of our image.
-    FDiff2D sensorSize;
+    hugin_utils::FDiff2D sensorSize;
     sensorSize.x = d / sqrt(1 + 1/(r*r));
     sensorSize.y = sensorSize.x / r;
     
@@ -901,9 +916,31 @@ double SrcPanoImage::calcCropFactor(SrcPanoImage::Projection proj, double hfov, 
     return sqrt(36.0*36.0 + 24.0*24.0) / diag;
 }
 
+double SrcPanoImage::calcExifExposureValue()
+{
+    double ev=0;
+    double photoFNumber=getExifAperture();
+    if(photoFNumber==0)
+    {
+        //if no F-number was found in EXIF data assume a f stop of 3.5 to get
+        //a reasonable ev value if shutter time, e. g. for manual lenses is found
+        photoFNumber=3.5;
+    };
+    if (getExifExposureTime() > 0)
+    {
+        double gain = 1;
+        if (getExifISO()> 0)
+        {
+            gain = getExifISO() / 100.0;
+        }
+        ev = log2(photoFNumber * photoFNumber / (gain * getExifExposureTime()));
+    };
+    return ev;
+};
+
 void SrcPanoImage::updateFocalLength(double newFocalLength)
 {
-    double newHFOV=calcHFOV(getProjection(),newFocalLength,getExifCropFactor(),getSize());
+    double newHFOV=calcHFOV(getProjection(),newFocalLength,getCropFactor(),getSize());
     if(newHFOV!=0)
     {
         setHFOV(newHFOV);
@@ -917,65 +954,8 @@ void SrcPanoImage::updateCropFactor(double focalLength, double newCropFactor)
     {
         setHFOV(newHFOV);
     };
-    setExifCropFactor(newCropFactor);
+    setCropFactor(newCropFactor);
 };
-
-// Convenience functions to work with Exiv2
-bool SrcPanoImage::getExiv2Value(Exiv2::ExifData& exifData, std::string keyName, long & value)
-{
-    Exiv2::ExifKey key(keyName);
-    Exiv2::ExifData::iterator itr = exifData.findKey(key);
-    if (itr != exifData.end() && itr->count()) {
-        value = itr->toLong();
-        DEBUG_DEBUG("" << keyName << ": " << value);
-        return true;
-    } else {
-        return false;
-    }
-}
-
-
-bool SrcPanoImage::getExiv2Value(Exiv2::ExifData& exifData, std::string keyName, float & value)
-{
-    Exiv2::ExifKey key(keyName);
-    Exiv2::ExifData::iterator itr = exifData.findKey(key);
-    if (itr != exifData.end() && itr->count()) {
-        value = itr->toFloat();
-        DEBUG_DEBUG("" << keyName << ": " << value);
-        return true;
-    } else {
-        return false;
-    }
-}
-
-
-bool SrcPanoImage::getExiv2Value(Exiv2::ExifData& exifData, std::string keyName, std::string & value)
-{
-    Exiv2::ExifKey key(keyName);
-    Exiv2::ExifData::iterator itr = exifData.findKey(key);
-    if (itr != exifData.end() && itr->count()) {
-        value = itr->toString();
-        DEBUG_DEBUG("" << keyName << ": " << value);
-        return true;
-    } else {
-        return false;
-    }
-}
-
-bool SrcPanoImage::getExiv2Value(Exiv2::ExifData& exifData, uint16_t tagID, std::string groupName, std::string & value)
-{
-    Exiv2::ExifKey key(tagID,groupName);
-    Exiv2::ExifData::iterator itr = exifData.findKey(key);
-    if (itr != exifData.end() && itr->count())
-    {
-        value = itr->toString();
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-}
 
 // mask handling stuff
 void SrcPanoImage::addMask(MaskPolygon newMask)
@@ -1000,13 +980,13 @@ void SrcPanoImage::clearActiveMasks()
 
 bool SrcPanoImage::hasMasks() const
 {
-    return m_Masks.getData().size()>0;
+    return !m_Masks.getData().empty();
 };
 
 bool SrcPanoImage::hasPositiveMasks() const
 {
     MaskPolygonVector masks=m_Masks.getData();
-    if(masks.size()>0)
+    if(!masks.empty())
     {
         for(unsigned int i=0;i<masks.size();i++)
         {
@@ -1021,12 +1001,12 @@ bool SrcPanoImage::hasPositiveMasks() const
 
 bool SrcPanoImage::hasActiveMasks() const
 {
-    return m_ActiveMasks.getData().size()>0;
+    return !m_ActiveMasks.getData().empty();
 };
  
 void SrcPanoImage::printMaskLines(std::ostream &o, unsigned int newImgNr) const
 {
-    if(m_Masks.getData().size()>0)
+    if(!m_Masks.getData().empty())
         for(unsigned int i=0;i<m_Masks.getData().size();i++)
             m_Masks.getData()[i].printPolygonLine(o, newImgNr);
 };

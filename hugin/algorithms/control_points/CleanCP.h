@@ -22,8 +22,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -32,6 +32,7 @@
 
 #include <hugin_shared.h>
 #include <panodata/Panorama.h>
+#include <appbase/ProgressDisplay.h>
 
 namespace HuginBase {
 
@@ -39,13 +40,14 @@ namespace HuginBase {
   @param pano panorama which should be used
   @param n determines, how big the deviation from mean should be to determine wrong control points, default 2.0
   @return set which contains control points with error > mean+n*sigma */
-IMPEX UIntSet getCPoutsideLimit_pair(Panorama pano, double n=2.0);
+IMPEX UIntSet getCPoutsideLimit_pair(Panorama pano, AppBase::ProgressDisplay& progress, double n=2.0);
 /** optimises the whole panorama and removes all control points with error > mean+n*sigma 
   @param pano panorama which should be used
   @param n determines, how big the deviation from mean should be to determine wrong control points, default 2.0
   @param skipOptimisation skips the optimisation step, the current position of the images is used
+  @param includeLineCp include also line control points when calculating mean and check them also for limit
   @return set which contains control points with error > mean+n*sigma */
-IMPEX UIntSet getCPoutsideLimit(Panorama pano, double n=2.0, bool skipOptimisation=false);
+IMPEX UIntSet getCPoutsideLimit(Panorama pano, double n = 2.0, bool skipOptimisation = false, bool includeLineCp = false);
 
 /** returns these control points, which are in masks */
 IMPEX UIntSet getCPinMasks(Panorama pano);

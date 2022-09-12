@@ -22,8 +22,8 @@
 *  General Public License for more details.
 *
 *  You should have received a copy of the GNU General Public
-*  License along with this software; if not, write to the Free Software
-*  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+*  License along with this software. If not, see
+*  <http://www.gnu.org/licenses/>.
 *
 */
     
@@ -176,7 +176,7 @@ class IMPEX SpaceTransform
         /** returns true if this transform is an identity transform */
         bool isIdentity()
         {
-            return m_Stack.size() == 0;
+            return m_Stack.empty();
         }
 
         

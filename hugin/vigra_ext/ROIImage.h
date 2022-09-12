@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -467,15 +467,7 @@ void reduceROIImages(std::vector<ROIIMG *> images,
                      vigra::pair<MaskIter, MaskAccessor> destMask,
                      FUNCTOR & reduce)
 {
-    typedef typename DestAccessor::value_type ImgType;
     typedef typename MaskAccessor::value_type MaskType;
-
-    typedef typename
-        vigra::NumericTraits<ImgType> Traits;
-    typedef typename
-        Traits::RealPromote RealImgType;
-
-    typedef typename vigra_ext::LUTTraits<MaskType> MaskLUTTraits;
 
     unsigned int nImg = images.size();
 

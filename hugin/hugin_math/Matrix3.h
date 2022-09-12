@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -65,7 +65,7 @@ public:
     
     // [Ippei note]: Why the hell is this a method of general Matrix3 class?
     //  Should be subclassed or externally provided
-    //  eg. static Matrix3 RotationMatrixPT::makeRotationMatrixPT(double yaw, double pitch, double roll)
+    //  eg. static Matrix3 RotationMatrixPanoCommand::makeRotationMatrixPT(double yaw, double pitch, double roll)
 
     /** set rotation in panotools style, 
      *  code adapted from Panotools-Script by Bruno Postle
@@ -133,8 +133,7 @@ public:
 	/** get the determinant */
 	inline double Determinant() const
 	{
-		double result = 0.0;
-		result  = m[0][0] * ( m[1][1] * m[2][2] - m[2][1] * m[1][2] );
+		double result =  m[0][0] * ( m[1][1] * m[2][2] - m[2][1] * m[1][2] );
 		result -= m[1][0] * ( m[0][1] * m[2][2] - m[2][1] * m[0][2] );
 		result += m[2][0] * ( m[0][1] * m[1][2] - m[1][1] * m[0][2] );
 		return result;

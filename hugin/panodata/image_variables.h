@@ -43,8 +43,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -64,10 +64,11 @@ image_variable( Size, vigra::Size2D , vigra::Size2D(0,0) )
 // projection variables
 image_variable( Projection, HuginBase::BaseSrcPanoImage::Projection, RECTILINEAR )
 image_variable( HFOV, double, 50.0 )
+image_variable( CropFactor, double, 0.0 )
 
 // colour response variables
 image_variable( ResponseType, HuginBase::BaseSrcPanoImage::ResponseType, RESPONSE_EMOR )
-image_variable( EMoRParams, std::vector<float>, std::vector<float>(5, 0.0) )
+image_variable( EMoRParams, std::vector<float>, std::vector<float>(5, 0.0f) )
 image_variable( ExposureValue, double, 0.0 )
 image_variable( Gamma, double, 1.0 )
 image_variable( WhiteBalanceRed, double, 1.0 )
@@ -89,11 +90,11 @@ image_variable( TranslationPlanePitch, double, 0.0)
 image_variable( Stack, double, 0.0 )
 
 // radial lens distortion
-image_variable( RadialDistortion, std::vector<double>, distortion_default )
+image_variable( RadialDistortion, std::vector<double>, std::vector<double>({ 0.0, 0.0, 0.0, 1.0 }))
 
 // radial lens distortion (red, blue channel), for TCA correction
-image_variable( RadialDistortionRed, std::vector<double>, distortion_default )
-image_variable( RadialDistortionBlue, std::vector<double>, distortion_default )
+image_variable( RadialDistortionRed, std::vector<double>, std::vector<double>({ 0.0, 0.0, 0.0, 1.0 }))
+image_variable( RadialDistortionBlue, std::vector<double>, std::vector<double>({ 0.0, 0.0, 0.0, 1.0 }))
 
 // Center shift
 image_variable( RadialDistortionCenterShift, hugin_utils::FDiff2D, hugin_utils::FDiff2D(0.0, 0.0) )
@@ -111,7 +112,7 @@ image_variable( VigCorrMode, int, VIGCORR_RADIAL|VIGCORR_DIV )
 
 // coefficients for vignetting correction (even degrees: 0,2,4,6, ...)
 image_variable( FlatfieldFilename, std::string, "" )
-image_variable( RadialVigCorrCoeff, std::vector<double>, RadialVigCorrCoeff_default )
+image_variable(RadialVigCorrCoeff, std::vector<double>, std::vector<double>({ 1.0, 0.0, 0.0, 0.0 }))
 image_variable( RadialVigCorrCenterShift, hugin_utils::FDiff2D, hugin_utils::FDiff2D(0.0, 0.0) )
 
 // linear pixel transform
@@ -125,16 +126,19 @@ image_variable( kb, std::vector<double>, ,  )
 image_variable( ExifModel, std::string, "" )
 image_variable( ExifMake, std::string, "" )
 image_variable( ExifLens, std::string, "" )
-image_variable( ExifCropFactor, double, 0 )
-image_variable( ExifFocalLength, double, 0 )
-image_variable( ExifOrientation, double, 0 )
-image_variable( ExifAperture, double, 0 )
-image_variable( ExifISO, double, 0 )
-image_variable( ExifDistance, double, 0 )
-image_variable( ExifFocalLength35, double, 0)
-image_variable( ExifExposureTime, double, 0)
+image_variable( ExifFocalLength, double, 0.0 )
+image_variable( ExifOrientation, double, 0.0 )
+image_variable( ExifAperture, double, 0.0 )
+image_variable( ExifISO, double, 0.0 )
+image_variable( ExifDistance, double, 0.0 )
+image_variable( ExifFocalLength35, double, 0.0)
+image_variable( ExifCropFactor, double, 0.0)
+image_variable( ExifExposureTime, double, 0.0)
 image_variable( ExifDate, std::string, "")
-image_variable( ExifExposureMode, int, 0)
+image_variable( ExifExposureMode, int, 0.0)
+image_variable( ExifRedBalance, double, 1.0)
+image_variable( ExifBlueBalance, double, 1.0)
+image_variable( FileMetadata, HuginBase::FileMetaData, HuginBase::FileMetaData())
 
 #if 0
 //
@@ -148,10 +152,10 @@ image_variable( Morph, bool, false )
 
 // mask handling
 // Masks is list of loaded or created textures
-image_variable( Masks, HuginBase::MaskPolygonVector, defaultMaskVector)
+image_variable( Masks, HuginBase::MaskPolygonVector, HuginBase::MaskPolygonVector())
 // ActiveMasks contains list of all negative masks, which should be applied to
 // a given image, this is used to propagate positive masks
-image_variable( ActiveMasks, HuginBase::MaskPolygonVector, defaultMaskVector)
+image_variable( ActiveMasks, HuginBase::MaskPolygonVector, HuginBase::MaskPolygonVector())
 
 // If the image is selected to be used in the preview and for optimisation.
 image_variable( Active, bool, true )

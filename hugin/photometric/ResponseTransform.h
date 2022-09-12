@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -26,14 +26,8 @@
 
 #include <vector>
 #include <functional>
-#include <boost/version.hpp>
-#if BOOST_VERSION>104700
-#include <boost/random/taus88.hpp>
-#define RANDOMGENERATOR boost::random::taus88
-#else
-#include <boost/random/mersenne_twister.hpp>
-#define RANDOMGENERATOR boost::mt19937
-#endif
+#include "hugin_config.h"
+#include <random>
 
 #include <vigra/stdimage.hxx>
 #include <vigra/numerictraits.hxx>
@@ -174,14 +168,14 @@ class InvResponseTransform : public ResponseTransform<VTIn>
         void setHDROutput(bool hdrMode, double destExposure);
         
         /// output lut
-        void setOutput(double destExposure, const LUTD & destLut, double scale);
+        void setOutput(double destExposure, const LUTD & destLut, double scale, double rangeCompression = 0.0);
         
 		void enforceMonotonicity()
 		{
-		    if (Base::m_lutR.size()) {
+		    if (!Base::m_lutR.empty()) {
 				vigra_ext::enforceMonotonicity(Base::m_lutR);
-		        // todo: invert lut, instead of using this functor?
-		        m_lutRInvFunc = vigra_ext::InvLUTFunctor<VT1, LUT>(Base::m_lutR);
+                invertLUT();
+		        m_lutRInvFunc = vigra_ext::LUTFunctor<VT1, LUT>(m_lutRInv);
 			}
 		}
 
@@ -231,17 +225,33 @@ class InvResponseTransform : public ResponseTransform<VTIn>
         
         void emitGLSL(std::ostringstream& oss, std::vector<double>& invLut, std::vector<double>& destLut) const;
 
+    private:
+        void invertLUT()
+        {
+            m_lutRInv.clear();
+            if (!Base::m_lutR.empty())
+            {
+                m_lutRInv.reserve(Base::m_lutR.size());
+                vigra_ext::InvLUTFunctor<VT1, LUT> slowRInvFunc = vigra_ext::InvLUTFunctor<VT1, LUT>(Base::m_lutR);
+                for (int i = 0; i < Base::m_lutR.size(); i++)
+                {
+                    const double f = static_cast<double>(i) / (Base::m_lutR.size() - 1);
+                    m_lutRInv.push_back(slowRInvFunc(f));
+                };
+            };
+        };
     protected: // needs be public?
-        //LUT m_lutRInv;
-        vigra_ext::InvLUTFunctor<VT1, LUT> m_lutRInvFunc;
+        LUT m_lutRInv;
+        vigra_ext::LUTFunctor<VT1, LUT> m_lutRInvFunc;
         LUTD m_destLut;
         vigra_ext::LUTFunctor<VTInCompReal, LUTD> m_destLutFunc;
         double m_destExposure;
         bool m_hdrMode;
         double m_intScale;
-        
+        double m_rangeCompression;
+
     private:
-        RANDOMGENERATOR Twister;
+        std::mt19937 Twister;
 };
 
 
@@ -344,8 +354,8 @@ double ResponseTransform<VTIn>::calcVigFactor(hugin_utils::FDiff2D d) const
     } else if (m_VigCorrMode & HuginBase::SrcPanoImage::VIGCORR_FLATFIELD) {
         // TODO: implement flatfield
         if (m_flatfield) {
-            int x = std::min(std::max(hugin_utils::roundi(d.x),0), m_flatfield->width()-1);;
-            int y = std::min(std::max(hugin_utils::roundi(d.y),0), m_flatfield->height()-1);;
+            int x = std::min(std::max(hugin_utils::roundi(d.x),0), static_cast<int>(m_flatfield->width()-1));
+            int y = std::min(std::max(hugin_utils::roundi(d.y),0), static_cast<int>(m_flatfield->height()-1));
             return (*m_flatfield)(x,y);
         } else {
             return 1;
@@ -364,7 +374,7 @@ ResponseTransform<VTIn>::apply(typename ResponseTransform<VTIn>::VT1 v, const hu
     // first, apply vignetting
 
     ret = ret*calcVigFactor(pos)*m_srcExposure;
-    if (m_lutR.size()) {
+    if (!m_lutR.empty()) {
         return m_lutRFunc(ret);
     } else {
         return ret;
@@ -383,7 +393,7 @@ ResponseTransform<VTIn>::apply(vigra::RGBValue<typename ResponseTransform<VTIn>:
     ret.red() = ret.red() * m_WhiteBalanceRed;
     ret.blue() = ret.blue() * m_WhiteBalanceBlue;
     // apply response curve
-    if (m_lutR.size()) {
+    if (!m_lutR.empty()) {
         return m_lutRFunc(ret);
     } else {
         return ret;
@@ -411,18 +421,19 @@ InvResponseTransform<VTIn,VTOut>::InvResponseTransform()
 {
     m_destExposure = 1.0;
     m_hdrMode = false;
+    m_rangeCompression = 0.0;
     m_intScale = 1;
 }
 
 template <class VTIn, class VTOut>
 InvResponseTransform<VTIn,VTOut>::InvResponseTransform(const HuginBase::SrcPanoImage & src)
-: Base(src), m_hdrMode(false)
+: Base(src), m_hdrMode(false), m_rangeCompression(0.0)
 {
     m_destExposure = 1.0;
     m_intScale = 1;
-    if (Base::m_lutR.size()) {
-        // todo: invert lut, instead of using this functor?
-        m_lutRInvFunc = vigra_ext::InvLUTFunctor<VT1, LUT>(Base::m_lutR);
+    if (!Base::m_lutR.empty()) {
+        invertLUT();
+        m_lutRInvFunc = vigra_ext::LUTFunctor<VT1, LUT>(m_lutRInv);
     }
 }
 
@@ -431,10 +442,11 @@ void InvResponseTransform<VTIn,VTOut>::init(const HuginBase::SrcPanoImage & src)
 {
     m_destExposure = 1.0;
     m_intScale = 1;
+    m_rangeCompression = 0.0;
     Base::init(src);
-    if (Base::m_lutR.size()) {
-        // todo: invert lut, instead of using this functor?
-        m_lutRInvFunc = vigra_ext::InvLUTFunctor<VT1, LUT>(Base::m_lutR);
+    if (!Base::m_lutR.empty()) {
+        invertLUT();
+        m_lutRInvFunc = vigra_ext::LUTFunctor<VT1, LUT>(m_lutRInv);
     }
 }
 
@@ -445,16 +457,22 @@ void InvResponseTransform<VTIn,VTOut>::setHDROutput(bool hdrMode, double destExp
     m_intScale = 1;
     m_destExposure = destExposure;
     m_destLut.clear();
+    m_rangeCompression = 0.0;
 }
 
 template <class VTIn, class VTOut>
-void InvResponseTransform<VTIn,VTOut>::setOutput(double destExposure, const LUTD & destLut, double scale)
+void InvResponseTransform<VTIn,VTOut>::setOutput(double destExposure, const LUTD & destLut, double scale, double rangeCompression)
 {
     m_hdrMode = false;
     m_destLut = destLut;
-    if (m_destLut.size() > 0) {
+    if (!m_destLut.empty()) {
         m_destLutFunc = vigra_ext::LUTFunctor<VTInCompReal, LUTD>(m_destLut);
+        m_rangeCompression = rangeCompression;
     }
+    else
+    {
+        m_rangeCompression = 0.0;
+    };
     m_destExposure = destExposure;
     m_intScale = scale;
 }
@@ -463,7 +481,7 @@ void InvResponseTransform<VTIn,VTOut>::setOutput(double destExposure, const LUTD
 template <class VTIn, class VTOut>
 double InvResponseTransform<VTIn,VTOut>::dither(const double &v) const
 {
-    RANDOMGENERATOR &mt = const_cast<RANDOMGENERATOR &>(Twister);
+    std::mt19937 &mt = const_cast<std::mt19937 &>(Twister);
     double vFraction = v - floor(v);
     // Only dither values within a certain range of the rounding cutoff point.
     if (vFraction > 0.25 && vFraction <= 0.75) {
@@ -486,7 +504,7 @@ InvResponseTransform<VTIn,VTOut>::apply(VT1 v, const hugin_utils::FDiff2D & pos,
 {
     // inverse response
     typename vigra::NumericTraits<VT1>::RealPromote ret(v);
-    if (Base::m_lutR.size()) {
+    if (!Base::m_lutR.empty()) {
         ret = m_lutRInvFunc(v);
     } else {
         ret /= vigra_ext::LUTTraits<VT1>::max();
@@ -494,7 +512,11 @@ InvResponseTransform<VTIn,VTOut>::apply(VT1 v, const hugin_utils::FDiff2D & pos,
     // inverse vignetting and exposure
     ret *= m_destExposure / (Base::calcVigFactor(pos) * Base::m_srcExposure);
     // apply output transform if required
-    if (m_destLut.size() > 0) {
+    if (!m_destLut.empty()) {
+        if (m_rangeCompression > 0.0)
+        {
+            ret = log2(m_rangeCompression*ret + 1) / log2(m_rangeCompression + 1);
+        };
         ret = m_destLutFunc(ret);
     }
     // dither all integer images
@@ -510,7 +532,7 @@ typename vigra::NumericTraits<vigra::RGBValue<typename InvResponseTransform<VTIn
 InvResponseTransform<VTIn,VTOut>::apply(vigra::RGBValue<VT1> v, const hugin_utils::FDiff2D & pos, vigra::VigraFalseType) const
 {
     typename vigra::NumericTraits<vigra::RGBValue<VT1> >::RealPromote ret(v);
-    if (Base::m_lutR.size()) {
+    if (!Base::m_lutR.empty()) {
         ret = m_lutRInvFunc(v);
     } else {
         ret /= vigra_ext::LUTTraits<VT1>::max();
@@ -521,7 +543,13 @@ InvResponseTransform<VTIn,VTOut>::apply(vigra::RGBValue<VT1> v, const hugin_util
     ret.red() /= Base::m_WhiteBalanceRed;
     ret.blue() /= Base::m_WhiteBalanceBlue;
     // apply output transform if required
-    if (m_destLut.size() > 0) {
+    if (!m_destLut.empty()) {
+        if (m_rangeCompression > 0)
+        {
+            ret.red() = log2(m_rangeCompression*ret.red() + 1) / log2(m_rangeCompression + 1);
+            ret.blue() = log2(m_rangeCompression*ret.blue() + 1) / log2(m_rangeCompression + 1);
+            ret.green() = log2(m_rangeCompression*ret.green() + 1) / log2(m_rangeCompression + 1);
+        };
         ret = m_destLutFunc(ret);
     }
     // dither 8 bit images.
@@ -554,26 +582,12 @@ template <class VTIn, class VTOut>
 void
 InvResponseTransform<VTIn,VTOut>::emitGLSL(std::ostringstream& oss, std::vector<double>& invLut, std::vector<double>& destLut) const
 {
-    invLut.clear();
-    invLut.reserve(Base::m_lutR.size());
+    invLut = m_lutRInv;
+    destLut = m_destLut;
 
-    for (int i = 0; i < Base::m_lutR.size(); i++) {
-        double f = static_cast<double>(i) / (Base::m_lutR.size() - 1);
-        double v = m_lutRInvFunc(f);
-        invLut.push_back(v);
-    }
-        
-    destLut.clear();
-    destLut.reserve(m_destLut.size());
-
-    for (typename LUTD::const_iterator lutI = m_destLut.begin(); lutI != m_destLut.end(); ++lutI) {
-        typename LUTD::value_type entry = *lutI;
-        destLut.push_back(entry);
-    }
-
-    double invLutSize = Base::m_lutR.size();
-    double pixelMax = vigra_ext::LUTTraits<VT1>::max();
-    double destLutSize = m_destLut.size();
+    const double invLutSize = Base::m_lutR.size();
+    const double pixelMax = vigra_ext::LUTTraits<VT1>::max();
+    const double destLutSize = m_destLut.size();
 
     oss << "    // invLutSize = " << invLutSize << endl
         << "    // pixelMax = " << pixelMax << endl
@@ -583,7 +597,15 @@ InvResponseTransform<VTIn,VTOut>::emitGLSL(std::ostringstream& oss, std::vector<
         << "    // whiteBalanceRed = " << Base::m_src.getWhiteBalanceRed() << endl
         << "    // whiteBalanceBlue = " << Base::m_src.getWhiteBalanceBlue() << endl;
 
-    if (Base::m_lutR.size() > 0) {
+    // alpha hdrWeight
+    if (m_hdrMode)
+    {
+        // hdr weight needs to be calculated from input pixel value
+        // so do it before the whole InvResponseTransformation is done
+        oss << "    p.a = max(p.r, max(p.g, p.b));" << endl;
+    }
+
+    if (!Base::m_lutR.empty()) {
         oss << "    p.rgb = p.rgb * " << (invLutSize - 1.0) << ";" << endl
             << "    vec2 invR = texture2DRect(InvLutTexture, vec2(p.r, 0.0)).sq;" << endl
             << "    vec2 invG = texture2DRect(InvLutTexture, vec2(p.g, 0.0)).sq;" << endl
@@ -631,7 +653,11 @@ InvResponseTransform<VTIn,VTOut>::emitGLSL(std::ostringstream& oss, std::vector<
         << (m_destExposure / (Base::m_srcExposure * Base::m_src.getWhiteBalanceBlue())) << ");" << endl
         << "    p.rgb = (p.rgb * exposure_whitebalance) / vig;" << endl;
 
-    if (m_destLut.size() > 0) {
+    if (!m_destLut.empty()) {
+        if (m_rangeCompression > 0)
+        {
+            oss << "    p.rgb = log2(" << m_rangeCompression << " * p.rgb + 1.0) / " << log2(m_rangeCompression + 1) << ";" << endl;
+        };
         oss << "    p.rgb = p.rgb * " << (destLutSize - 1.0) << ";" << endl
             << "    vec2 destR = texture2DRect(DestLutTexture, vec2(p.r, 0.0)).sq;" << endl
             << "    vec2 destG = texture2DRect(DestLutTexture, vec2(p.g, 0.0)).sq;" << endl
@@ -640,11 +666,6 @@ InvResponseTransform<VTIn,VTOut>::emitGLSL(std::ostringstream& oss, std::vector<
             << "    vec3 destY = vec3(destR.y, destG.y, destB.y);" << endl
             << "    vec3 destA = fract(p.rgb);" << endl
             << "    p.rgb = mix(destX, destY, destA);" << endl;
-    }
-
-    // alpha hdrWeight
-    if (m_hdrMode) {
-        oss << "    p.a = max(p.r, max(p.g, p.b));" << endl;
     }
 }
 

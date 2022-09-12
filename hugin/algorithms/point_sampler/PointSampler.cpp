@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -26,32 +26,52 @@
 #include <algorithms/basic/CalculateOptimalScale.h>
 #include <algorithms/nona/FitPanorama.h>
 #include <algorithms/nona/CenterHorizontally.h>
+#include <vigra/convolution.hxx>
 
 namespace HuginBase
 {
 
+/** default constructor with float limits */
+LimitIntensity::LimitIntensity()
+{
+    m_minI = -FLT_MAX;
+    m_maxI = FLT_MAX;
+};
+
+/** constructor with limits for some usual image type */
+LimitIntensity::LimitIntensity(LimitIntensity::LimitType limit)
+{
+    switch (limit)
+    {
+        case LIMIT_UINT8:
+            m_minI = 1 / 255.0f;
+            m_maxI = 250 / 255.0f;
+            break;
+        case LIMIT_UINT16:
+            m_minI = 1 / 65535.0f;
+            m_maxI = 65000 / 65535.0f;
+            break;
+        case LIMIT_FLOAT:
+            m_minI = -FLT_MAX;
+            m_maxI = FLT_MAX;
+            break;
+    };
+};
+
 bool PointSampler::runAlgorithm()
 {
     // is this correct? how much progress requierd?
-    AppBase::ProgressReporter* progRep = 
-        AppBase::ProgressReporterAdaptor::newProgressReporter(getProgressDisplay(), 2.0); 
+    sampleAndExtractPoints(getProgressDisplay());
     
-    sampleAndExtractPoints(*progRep);
-    
-    delete progRep;
-
-    if(hasProgressDisplay())
+    if (getProgressDisplay()->wasCancelled())
     {
-        if(getProgressDisplay()->wasCancelled())
-            cancelAlgorithm();
-    }
+        cancelAlgorithm();
+    };
 
     return wasCancelled();
 }
 
-
-
-void PointSampler::sampleAndExtractPoints(AppBase::ProgressReporter & progress)
+void PointSampler::sampleAndExtractPoints(AppBase::ProgressDisplay* progress)
 {
     PanoramaData& pano = *(o_panorama.getNewCopy()); // don't forget to delete!
     std::vector<vigra::FRGBImage*>& images = o_images;
@@ -60,7 +80,6 @@ void PointSampler::sampleAndExtractPoints(AppBase::ProgressReporter & progress)
     
     std::vector<vigra::FImage *> lapImgs;
     std::vector<vigra::Size2D> origsize;
-    std::vector<SrcPanoImage> srcDescr;
     
     // convert to interpolating images
     typedef vigra_ext::ImageInterpolator<vigra::FRGBImage::const_traverser, vigra::FRGBImage::ConstAccessor, vigra_ext::interp_cubic> InterpolImg;
@@ -73,15 +92,17 @@ void PointSampler::sampleAndExtractPoints(AppBase::ProgressReporter & progress)
         SrcPanoImage simg = pano.getSrcImage(i);
         origsize.push_back(simg.getSize());
         simg.resize(images[i]->size());
-        srcDescr.push_back(simg);
         pano.setSrcImage(i, simg);
         interpolImages.push_back(InterpolImg(srcImageRange(*(images[i])), interp, false));
         
         vigra::FImage * lap = new vigra::FImage(images[i]->size());
-        vigra::laplacianOfGaussian(srcImageRange(*(images[i]), vigra::GreenAccessor<vigra::RGBValue<float> >()), destImage(*lap), 1);
         lapImgs.push_back(lap);
     }
-    
+#pragma omp parallel for
+    for (int i = 0; i < pano.getNrOfImages(); i++)
+    {
+        vigra::laplacianOfGaussian(srcImageRange(*(images[i]), vigra::GreenAccessor<vigra::RGBValue<float> >()), destImage(*(lapImgs[i])), 1);
+    }
     
     // extract the overlapping points.
 //    PanoramaOptions opts = pano.getOptions();
@@ -94,7 +115,12 @@ void PointSampler::sampleAndExtractPoints(AppBase::ProgressReporter & progress)
     CalculateFitPanorama fitPano(pano);
     fitPano.run();
     opts.setHFOV(fitPano.getResultHorizontalFOV());
-    opts.setHeight(roundi(fitPano.getResultHeight()));
+    opts.setHeight(hugin_utils::roundi(fitPano.getResultHeight()));
+    // set roi to maximal size, so that the whole panorama is used for sampling
+    // a more reasonable solution would be to use the maximal
+    // used area, but this is currently not support to
+    // calculate optimal roi
+    opts.setROI(vigra::Rect2D(opts.getSize()));
     pano.setOptions(opts);
     SetWidthOptimal(pano).run();
     
@@ -109,20 +135,18 @@ void PointSampler::sampleAndExtractPoints(AppBase::ProgressReporter & progress)
     
     
     // call the samplePoints method of this class
-    progress.setMessage("sampling points");
+    progress->setMessage("sampling points");
     samplePoints(interpolImages,
                  lapImgs,
-                 srcDescr,
-                 pano.getOptions(),
-                 1/255.0,
-                 250/255.0,
+                 pano,
+                 m_limits,
                  radiusHist,
                  nGoodPoints,
                  nBadPoints,
                  progress);
         
     // select points with low laplacian of gaussian values.
-    progress.setMessage("extracting good points");
+    progress->setMessage("extracting good points");
     sampleRadiusUniform(radiusHist, nPoints, points, progress);
     
     // scale point coordinates to fit into original panorama.
@@ -142,23 +166,6 @@ void PointSampler::sampleAndExtractPoints(AppBase::ProgressReporter & progress)
     
     delete &pano; // deleting the NewCopy
 }
-
-
-
-/// for compatibility deprecated
-void PointSampler::extractPoints(PanoramaData& pano, std::vector<vigra::FRGBImage*> images, int nPoints,
-                                 bool randomPoints, AppBase::ProgressReporter& progress,
-                                 std::vector<vigra_ext::PointPairRGB>& points)
-{
-    PointSampler* sampler = (randomPoints)? (PointSampler*) new RandomPointSampler(pano, NULL, images, nPoints)
-                                          : (PointSampler*) new AllPointSampler(pano, NULL, images, nPoints);
-    
-    sampler->sampleAndExtractPoints(progress);
-    points = sampler->getResultPoints();
-    
-    delete sampler;
-}
-
 
 }; // namespace
 

@@ -20,8 +20,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -35,9 +35,9 @@
 #include <math.h>
 #include <ctime>
 
-#include <boost/random/mersenne_twister.hpp>
-#include <boost/random/uniform_int.hpp>
-#include <boost/random/variate_generator.hpp>
+#include "hugin_config.h"
+#include <random>
+#include <functional>
 
 //#include "ParameterEsitmator.h"
 
@@ -196,30 +196,28 @@ std::vector<const T *> Ransac::compute(S &parameters,
     SubSetIndexComparator subSetIndexComparator(numForEstimate);
     std::set<int *, SubSetIndexComparator > chosenSubSets(subSetIndexComparator);
     int *curSubSetIndexes;
-    double outlierPercentage = maximalOutlierPercentage;
+    // double outlierPercentage = maximalOutlierPercentage;
     double numerator = log(1.0-desiredProbabilityForNoOutliers);
     double denominator = log(1- pow((double)(1.0-maximalOutlierPercentage), (double)(numForEstimate)));
     int allTries = choose(numDataObjects,numForEstimate);
 
     //parameters.clear();
 
+
     numVotesForBest = 0; //initalize with 0 so that the first computation which gives any type of fit will be set to best
     
     // intialize random generator
-    boost::mt19937 rng;
-    // start with a different seed every time.
-    rng.seed(static_cast<unsigned int>(std::time(0)));
-    // randomly sample points.
-    maxIndex = numDataObjects-1;
-    boost::uniform_int<> distribIndex(0, maxIndex);
-    boost::variate_generator<boost::mt19937&, boost::uniform_int<> >
-                             randIndex(rng, distribIndex);  // glues randomness with mapping
+    maxIndex = numDataObjects - 1;
+    std::mt19937 rng(static_cast<unsigned int>(std::time(0)));
+    std::uniform_int_distribution<> distribIndex(0, maxIndex);
+    auto randIndex=std::bind(distribIndex, rng);
 
 //    srand((unsigned)time(NULL)); //seed random number generator
     numTries = (int)(numerator/denominator + 0.5);
 
     //there are cases when the probablistic number of tries is greater than all possible sub-sets
     numTries = numTries<allTries ? numTries : allTries;
+
     for(i=0; i<numTries; i++) {
         //randomly select data for exact model fit ('numForEstimate' objects).
         memset(notChosen,'1',numDataObjects*sizeof(short));
@@ -256,11 +254,9 @@ std::vector<const T *> Ransac::compute(S &parameters,
         if(res.second == true) { //first time we chose this sub set
 		                 //use the selected data for an exact model parameter fit
             if (!paramEstimator.estimate(exactEstimateData,exactEstimateParameters))
-            {
                 //selected data is a singular configuration (e.g. three colinear points for 
                 //a circle fit)
                 continue;
-            }
             //see how many agree on this estimate
             numVotesForCur = 0;
             memset(curVotes,'\0',numDataObjects*sizeof(short));
@@ -271,7 +267,6 @@ std::vector<const T *> Ransac::compute(S &parameters,
                 }
             }
 	    // debug output
-#define DEBUG_RANSAC 1
 	    #ifdef DEBUG_RANSAC
 	    std::cerr << "RANSAC iter " << i << ": inliers: " << numVotesForCur << " parameters:";
 	    for (int jj=0; jj < exactEstimateParameters.size(); jj++)
@@ -324,7 +319,6 @@ std::vector<const T *> Ransac::compute(S &parameters,
     delete [] bestVotes;
     delete [] curVotes;
     delete [] notChosen;
-
 
     return leastSquaresEstimateData;
 }
@@ -408,7 +402,7 @@ void Ransac::estimate(const Estimator & paramEstimator, const std::vector<T> &da
 		exactEstimateData.push_back(&(data[arr[j]]));
 	paramEstimator.estimate(exactEstimateData,exactEstimateParameters);
 	                     //singular data configuration
-	if(exactEstimateParameters.size()==0)
+	if(exactEstimateParameters.empty())
 		return;
 
 	for(j=0; j<numDataObjects; j++) {

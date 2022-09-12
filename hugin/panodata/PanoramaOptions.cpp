@@ -19,8 +19,8 @@
  *  General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  Revised 16JAN2010 by TKSharpless 
  to support default projection  parameters and dynamic FOV limits.
@@ -59,10 +59,6 @@
 
 namespace HuginBase {
 
-using namespace hugin_utils;
-using namespace vigra;
-
-
 const std::string & PanoramaOptions::getFormatName(FileFormat f)
 {
     assert((int)f <= (int)FILEFORMAT_NULL);
@@ -98,24 +94,12 @@ void PanoramaOptions::printScriptLine(std::ostream & o, bool forPTOptimizer) con
             << " v" << getHFOV() << " ";
 
     if (! forPTOptimizer) {
-        switch (colorCorrection) {
-        case NONE:
-            break;
-        case BRIGHTNESS_COLOR:
-            o << " k" << colorReferenceImage;
-            break;
-        case BRIGHTNESS:
-            o << " b" << colorReferenceImage;
-            break;
-        case COLOR:
-            o << " d" << colorReferenceImage;
-            break;
-        }
-
+        // anchor for photometric optimizer
+        o << " k" << colorReferenceImage;
         // the new exposure options
         o << " E" << outputExposureValue;
         o << " R" << outputMode;
-        if (outputPixelType.size() > 0) {
+        if (!outputPixelType.empty()) {
             o << " T" << outputPixelType;
         }
         if (m_roi != vigra::Rect2D(m_size)) {
@@ -123,7 +107,7 @@ void PanoramaOptions::printScriptLine(std::ostream & o, bool forPTOptimizer) con
         }
     }
 
-    if (m_projectionParams.size() > 0) {
+    if (!m_projectionParams.empty()) {
         o << " P\"";
         for (int i=0; i < (int) m_projectionParams.size(); i++) {
             o << m_projectionParams[i];
@@ -133,7 +117,7 @@ void PanoramaOptions::printScriptLine(std::ostream & o, bool forPTOptimizer) con
         o << "\"";
     }
     o << " n\"" << getFormatName(outputFormat);
-    if ( outputFormat == JPEG ) {
+    if ( outputFormat == JPEG || outputFormat == JPEG_m) {
         o << " q" << quality;
     } else if ( outputFormat == TIFF ||
                 outputFormat == TIFF_m ||
@@ -150,22 +134,7 @@ void PanoramaOptions::printScriptLine(std::ostream & o, bool forPTOptimizer) con
     o << std::endl;
 
     // misc options
-    o << "m g" << gamma << " i" << interpolator;
-    switch (remapAcceleration) {
-    case NO_SPEEDUP:
-        break;
-    case MAX_SPEEDUP:
-        o << " f0";
-        break;
-    case MEDIUM_SPEEDUP:
-        o << " f1";
-    }
-    o << " m" << huberSigma;
-
-    // options for photometric estimation.
-    o << " p" << photometricHuberSigma;
-    if (photometricSymmetricError) 
-        o << " s1";
+    o << "m i" << interpolator;
 
     o << std::endl;
 }
@@ -264,8 +233,8 @@ void PanoramaOptions::setWidth(unsigned int w, bool keepView)
         m_roi = vigra::Rect2D(m_size);
     } else {
         // for now, do a simple proportional scaling
-        m_roi.setUpperLeft(vigra::Point2D(roundi(scale*m_roi.left()), m_roi.top()));
-        m_roi.setLowerRight(vigra::Point2D(roundi(scale*m_roi.right()), m_roi.bottom()));
+        m_roi.setUpperLeft(vigra::Point2D(hugin_utils::roundi(scale*m_roi.left()), m_roi.top()));
+        m_roi.setLowerRight(vigra::Point2D(hugin_utils::roundi(scale*m_roi.right()), m_roi.bottom()));
         // ensure ROI is inside the panorama
         m_roi &= vigra::Rect2D(m_size);
     }
@@ -275,17 +244,15 @@ void PanoramaOptions::setWidth(unsigned int w, bool keepView)
         if (nocrop) {
             m_roi = vigra::Rect2D(m_size);
         } else {
-            m_roi.setUpperLeft(vigra::Point2D(m_roi.left(), roundi(scale*m_roi.top())));
-            m_roi.setLowerRight(vigra::Point2D(m_roi.right(), roundi(scale*m_roi.bottom())));
+            m_roi.setUpperLeft(vigra::Point2D(m_roi.left(), hugin_utils::roundi(scale*m_roi.top())));
+            m_roi.setLowerRight(vigra::Point2D(m_roi.right(), hugin_utils::roundi(scale*m_roi.bottom())));
             // ensure ROI is inside the panorama
-            m_roi &= Rect2D(m_size);
+            m_roi &= vigra::Rect2D(m_size);
         }
         if (fovCalcSupported(m_projectionFormat)) {
-            DEBUG_DEBUG("fovCalcSupported");
             if (getVFOV() > getMaxVFOV()) {
                 setVFOV(getMaxVFOV());
             }
-            DEBUG_DEBUG("FOV DONE");
         }
     }
 
@@ -314,7 +281,6 @@ void PanoramaOptions::setHeight(unsigned int h)
 
 void PanoramaOptions::setHFOV(double h, bool keepView)
 {
-    DEBUG_DEBUG("E setHFOV");
     if (keepView && !fovCalcSupported(m_projectionFormat)) {
         DEBUG_NOTICE("Ignoring keepView");
         keepView = false;
@@ -331,7 +297,6 @@ void PanoramaOptions::setHFOV(double h, bool keepView)
     if (keepView) {
         setVFOV(std::min(vfov, getMaxVFOV()));
     }
-    DEBUG_DEBUG("X setHFOV");
 }
 
 void PanoramaOptions::setVFOV(double VFOV)
@@ -356,13 +321,13 @@ void PanoramaOptions::setVFOV(double VFOV)
     src.setSize(vigra::Size2D(360,180));
     transf.createInvTransform(src, *this);
 
-    FDiff2D pmiddle;
+    hugin_utils::FDiff2D pmiddle;
 
     if (VFOV>180 && getMaxVFOV() > 180) {
         // we have crossed the pole
-        transf.transform(pmiddle, FDiff2D(180, 180-VFOV/2 - 0.01));
+        transf.transform(pmiddle, hugin_utils::FDiff2D(180, 180 - VFOV / 2 - 0.01));
     } else {
-        transf.transform(pmiddle, FDiff2D(0, VFOV/2));
+        transf.transform(pmiddle, hugin_utils::FDiff2D(0, VFOV / 2));
     }
     // try to keep the same ROI
     vigra::Size2D oldSize = m_size;
@@ -392,54 +357,35 @@ double PanoramaOptions::getVFOV() const
     src.setSize(vigra::Size2D(360,180));
     transf.createTransform(src, *this);
 
-    FDiff2D pmiddle;
-    FDiff2D pcorner;
-    transf.transform(pmiddle, FDiff2D(0, m_size.y/2.0));
-//    transf.transform(pcorner, FDiff2D(m_size.x/2.0, m_size.y/2.0));
-    double VFOV;
-    if (pmiddle.x > 90 ||pmiddle.y < -90) {
-        // the pole has been crossed
-        VFOV = 2*(180-pmiddle.y);
-    } else {
-        VFOV = 2*pmiddle.y;
-    }
-    //double VFOV = 2.0*std::max(pcorner.y, pmiddle.y);
-
-    /*
-    double VFOV;
-    switch (m_projectionFormat) {
-        case PanoramaOptions::RECTILINEAR:
-            VFOV = 2.0 * atan( (double)m_height * tan(DEG_TO_RAD(m_hfov)/2.0) / m_width);
-            VFOV = RAD_TO_DEG(VFOV);
-            break;
-        case PanoramaOptions::CYLINDRICAL:
+    hugin_utils::FDiff2D pmiddle;
+    if (transf.transform(pmiddle, hugin_utils::FDiff2D(0, m_size.y / 2.0)))
+    {
+        double VFOV;
+        if (pmiddle.x > 90 || pmiddle.y < -90)
         {
-            // equations: w = f * v (f: focal length, in pixel)
-            double f = m_width / DEG_TO_RAD(m_hfov);
-            VFOV = 2*atan(m_height/(2.0*f));
-            VFOV = RAD_TO_DEG(VFOV);
-            break;
+            // the pole has been crossed
+            VFOV = 2 * (180 - pmiddle.y);
         }
-        case PanoramaOptions::EQUIRECTANGULAR:
-            // FIXME: This is wrong!
-        case TRANSVERSE_MERCATOR:
-        case MERCATOR:
-            VFOV = m_hfov * m_height / m_width;
-            break;
-        case PanoramaOptions::FULL_FRAME_FISHEYE:
-            VFOV = m_hfov * m_height / m_width;
-            break;
+        else
+        {
+            VFOV = 2 * pmiddle.y;
+        }
+        DEBUG_DEBUG(" HFOV: " << m_hfov << " size: " << m_size << " roi: " << m_roi << "  => vfov: " << VFOV);
+        return VFOV;
     }
-    */
-    DEBUG_DEBUG(" HFOV: " << m_hfov << " size: " << m_size << " roi: " << m_roi << "  => vfov: " << VFOV);
-
-    return VFOV;
+    else
+    {
+        DEBUG_DEBUG(" HFOV: " << m_hfov << " size: " << m_size << " roi: " << m_roi << "  => vfov: " << getMaxVFOV() << " (setting to max)");
+        return getMaxVFOV();
+    }
 }
 
 const std::string PanoramaOptions::fileformatNames[] =
 {
     "JPEG",
+    "JPEG_m",
     "PNG",
+    "PNG_m",
     "TIFF",
     "TIFF_m",
     "TIFF_mask",
@@ -464,6 +410,8 @@ const std::string PanoramaOptions::fileformatNames[] =
 const std::string PanoramaOptions::fileformatExt[] =
 {
     "jpg",
+    "jpg",
+    "png",
     "png",
     "tif",
     "tif",

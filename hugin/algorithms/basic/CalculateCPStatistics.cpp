@@ -18,8 +18,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -38,10 +38,12 @@ namespace HuginBase {
 void CalculateCPStatisticsError::calcCtrlPntsErrorStats(const PanoramaData& pano,
                                                         double & min, double & max, double & mean,
                                                         double & var,
-                                                        const int& imgNr)
+                                                        const int& imgNr,
+                                                        const bool onlyActive,
+                                                        const bool ignoreLineCp)
 {
     const CPVector& cps = pano.getCtrlPoints();
-    
+    const UIntSet activeImgs(pano.getActiveImages());
     max = 0;
     min = 1000000;
     mean = 0;
@@ -49,11 +51,19 @@ void CalculateCPStatisticsError::calcCtrlPntsErrorStats(const PanoramaData& pano
     
     int n=0;
     CPVector::const_iterator it;
-    for (it = cps.begin() ; it != cps.end(); it++) {
+    for (it = cps.begin() ; it != cps.end(); ++it) {
         if (imgNr >= 0 && ((int)(*it).image1Nr != imgNr || (int)(*it).image2Nr != imgNr))
         {
             continue;
         }
+        if (onlyActive && (!set_contains(activeImgs, it->image1Nr) || !set_contains(activeImgs, it->image2Nr)))
+        {
+            continue;
+        };
+        if (ignoreLineCp && it->mode != ControlPoint::X_Y)
+        {
+            continue;
+        };
         n++;
         double x = (*it).error;
         double delta = x - mean;
@@ -86,7 +96,7 @@ void CalculateCPStatisticsRadial::calcCtrlPntsRadiStats(const PanoramaData& pano
     CPVector::const_iterator it;
     const CPVector & cps = pano.getCtrlPoints();
     std::vector<double> radi;
-    for (it = cps.begin() ; it != cps.end(); it++) {
+    for (it = cps.begin() ; it != cps.end(); ++it) {
         if (imgNr >= 0 && ((int)(*it).image1Nr != imgNr || (int)(*it).image2Nr != imgNr))
         {
             continue;

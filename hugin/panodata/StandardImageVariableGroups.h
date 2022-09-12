@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -48,7 +48,7 @@ public:
      * creates ImageVariableGroups for lenses, etc.
      * @param pano The panorama data to use for the lenses, etc.
      */
-    ConstStandardImageVariableGroups(const PanoramaData & pano);
+    explicit ConstStandardImageVariableGroups(const PanoramaData & pano);
     
     /** Get the ImageVariableGroup representing the group of lens variables.
      * 
@@ -130,7 +130,7 @@ protected:
 class IMPEX StandardImageVariableGroups: public ConstStandardImageVariableGroups
 {
 public:
-    StandardImageVariableGroups(PanoramaData & pano);
+    explicit StandardImageVariableGroups(PanoramaData & pano);
     
     /** Get the ImageVariableGroup representing the group of lens variables.
      * 

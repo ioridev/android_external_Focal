@@ -18,26 +18,24 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
 #include "CalculateFOV.h"
 
 #include <algorithm>
-#include <vigra/impex.hxx>
+#include <vigra/copyimage.hxx>
 #include <nona/RemappedPanoImage.h>
 
 namespace HuginBase {
 
-using namespace hugin_utils;
-
-FDiff2D CalculateFOV::calcFOV(const PanoramaData& panorama)
+hugin_utils::FDiff2D CalculateFOV::calcFOV(const PanoramaData& panorama)
 {
     if (panorama.getNrOfImages() == 0) {
         // no change
-        return FDiff2D(panorama.getOptions().getHFOV(), panorama.getOptions().getVFOV());
+        return hugin_utils::FDiff2D(panorama.getOptions().getHFOV(), panorama.getOptions().getVFOV());
     }
 
     vigra::Size2D panoSize(360*2,180*2);
@@ -70,12 +68,10 @@ FDiff2D CalculateFOV::calcFOV(const PanoramaData& panorama)
                                                 vigra_ext::srcMask(remapped)),
                             vigra_ext::applyRect(remapped.boundingBox(),
                                                 destImage(panoAlpha)));
-        //        vigra::ImageExportInfo imge2("c:/hugin_calcfov_alpha.png");
-        //        exportImage(vigra::srcImageRange(panoAlpha), imge2);
         }
 
     // get field of view
-    FDiff2D ul,lr;
+    hugin_utils::FDiff2D ul, lr;
     bool found = false;
     ul.x = DBL_MAX;
     ul.y = DBL_MAX;
@@ -106,7 +102,7 @@ FDiff2D CalculateFOV::calcFOV(const PanoramaData& panorama)
     }
     if (!found) {
         // if nothing found, return current fov
-        return FDiff2D(panorama.getOptions().getHFOV(), panorama.getOptions().getVFOV());
+        return hugin_utils::FDiff2D(panorama.getOptions().getHFOV(), panorama.getOptions().getVFOV());
     }
     ul=ul/2.0;
     lr=lr/2.0;
@@ -114,10 +110,17 @@ FDiff2D CalculateFOV::calcFOV(const PanoramaData& panorama)
     ul.y = ul.y - 90;
     lr.x = lr.x - 180;
     lr.y = lr.y - 90;
-    FDiff2D fov (2*std::max(fabs(ul.x), fabs(lr.x)), 2*std::max(fabs(ul.y), fabs(lr.y)));
+    hugin_utils::FDiff2D fov(2 * std::max(fabs(ul.x), fabs(lr.x)), 2 * std::max(fabs(ul.y), fabs(lr.y)));
+    // the calculation above is done with a resolution of 1 deg
+    // for small fov the calculated fov can be a little bit too small
+    // so in this case add a small offset
     if(fov.x<40)
     {
         fov.x+=1;
+    };
+    if (fov.y < 40)
+    {
+        fov.y += 1;
     };
     return fov;
 }

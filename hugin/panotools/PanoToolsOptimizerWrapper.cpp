@@ -21,14 +21,13 @@
  *  General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
 #include <hugin_config.h>
 
-#include <iostream>
 #include <sstream>
 #include <hugin_utils/utils.h>
 
@@ -63,7 +62,6 @@ unsigned int optimize(PanoramaData& pano,
 {
     char * script = 0;
     unsigned int retval = 0;
-    std::cout << "PTools::optimize E" << std::endl;
 
     if (userScript == 0) {
         std::ostringstream scriptbuf;
@@ -96,7 +94,6 @@ unsigned int optimize(PanoramaData& pano,
 			RunLMOptimizer( &opt );
 			ainf.data		= opt.message;
             // get results from align info.
-            std::cout << "updating params "<<std::endl;
 #ifdef DEBUG_WRITE_OPTIM_OUTPUT
             fullPath path;
             StringtoFullPath(&path, DEBUG_WRITE_OPTIM_OUTPUT_FILE );
@@ -118,7 +115,6 @@ unsigned int optimize(PanoramaData& pano,
     if (! userScript) {
         free(script);
     }
-    std::cout << "PTools::optimize X" << std::endl;
     return retval;
 }
 

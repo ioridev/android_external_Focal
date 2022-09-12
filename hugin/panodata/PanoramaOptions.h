@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -25,16 +25,12 @@
 #define _PANODATA_PANORAMAMEMENTO_H
 
 #include <hugin_config.h>
+#include <hugin_shared.h>
 
 #include <string>
 #include <vector>
-//#include <map>
-//#include <algorithm>
-//#include <set>
-//#include <math.h>
-#include <vigra/diff2d.hxx>
 
-#include <vigra/windows.h>
+#include <vigra/diff2d.hxx>
 
 extern "C" {
 
@@ -43,7 +39,9 @@ extern "C" {
     #undef __INTEL__
     #endif
 
-    #include <panorama.h>
+    // Define __NO_SYSTEM__ in order to turn off including of windows.h in pano13/panorama.h
+    #define __NO_SYSTEM__
+    #include <pano13/panorama.h>
 
     #ifdef __INTELMEMO__
     #define __INTEL__
@@ -68,12 +66,8 @@ extern "C" {
 #undef MAX
 #endif
 
-    }
+}
 
-//
-//#include "PT/PanoImage.h"
-
-#include <hugin_shared.h>
 #include <vigra_ext/Interpolators.h>
 
 namespace HuginBase {
@@ -124,7 +118,9 @@ class IMPEX PanoramaOptions
          */
         enum FileFormat {
             JPEG = 0,
+            JPEG_m,
             PNG,
+            PNG_m,
             TIFF,
             TIFF_m,
             TIFF_mask,
@@ -163,22 +159,14 @@ class IMPEX PanoramaOptions
             PTBLENDER_BLEND=1,
             ENBLEND_BLEND=2,
             SMARTBLEND_BLEND=3,
-            PTMASKER_BLEND=4
+            PTMASKER_BLEND=4,
+            INTERNAL_BLEND=5
         };
 
         ///
         enum Remapper {
             NONA=0,
             PTMENDER
-        };
-
-        /** type of color correction
-         */
-        enum ColorCorrection {
-            NONE = 0,
-            BRIGHTNESS_COLOR,
-            BRIGHTNESS,
-            COLOR
         };
 
     public:
@@ -195,18 +183,14 @@ class IMPEX PanoramaOptions
             m_hfov = 360;
             m_size = vigra::Size2D(3000, 1500);
             m_roi = vigra::Rect2D(m_size);
-            outfile = "panorama";
             tiff_saveROI = true;
             tiffCompression = "LZW";
             quality = 100;
-            colorCorrection = NONE;
             colorReferenceImage = 0;
             optimizeReferenceImage = 0;
-            gamma = 1.0;
             interpolator = vigra_ext::INTERP_CUBIC;
             // featherWidth = 10;
             outputFormat = TIFF_m;
-            remapAcceleration = MAX_SPEEDUP;
             blendMode = ENBLEND_BLEND;
             hdrMergeMode = HDRMERGE_AVERAGE;
             remapper = NONA;
@@ -214,7 +198,6 @@ class IMPEX PanoramaOptions
             saveCoordImgs = false;
             huberSigma = 2;
             photometricHuberSigma = 2/255.0;
-            photometricSymmetricError = false;
             outputMode = OUTPUT_LDR;
 
             outputLDRBlended = true;
@@ -237,9 +220,11 @@ class IMPEX PanoramaOptions
             enblendOptions = "";
             enfuseOptions  = "";
             hdrmergeOptions = "";
+            verdandiOptions = "";
 
-            outputEMoRParams.resize(5,0.0);
+            outputEMoRParams.resize(5,0.0f);
             outputExposureValue = 0.0;
+            outputRangeCompression = 0.0;
             outputPixelType = "";
 
             panoProjectionFeaturesQuery(m_projectionFormat, &m_projFeatures);
@@ -346,7 +331,6 @@ class IMPEX PanoramaOptions
     public:
         //TODO: Write accessor methods; make instance variables private unless absolutely neccesary for backward-compatibility.
         
-        std::string outfile;
         FileFormat outputFormat;
 
         // jpeg options
@@ -356,17 +340,14 @@ class IMPEX PanoramaOptions
         std::string tiffCompression;
         bool tiff_saveROI;
 
-        ColorCorrection colorCorrection;
         unsigned int colorReferenceImage;
 
         // misc options
-        double gamma;
         vigra_ext::Interpolator interpolator;
 
         unsigned int optimizeReferenceImage;
         // unsigned int featherWidth;
 
-        PTStitcherAcceleration remapAcceleration;
         BlendingMechanism blendMode;
         HDRMergeType hdrMergeMode;
         Remapper remapper;
@@ -377,7 +358,6 @@ class IMPEX PanoramaOptions
         double huberSigma;
 
         double photometricHuberSigma;
-        double photometricSymmetricError;
 
         // modes related to high dynamic range output
         OutputMode outputMode;
@@ -402,10 +382,12 @@ class IMPEX PanoramaOptions
         std::string enblendOptions;
         std::string enfuseOptions;
         std::string hdrmergeOptions;
+        std::string verdandiOptions;
 
         // select the exposure of the output images in LDR mode.
         double outputExposureValue;
         std::vector<float> outputEMoRParams;
+        double outputRangeCompression;
 
         // choose pixel type for output images.
         std::string outputPixelType;

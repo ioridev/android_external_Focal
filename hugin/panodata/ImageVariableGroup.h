@@ -17,8 +17,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -88,12 +88,15 @@ IVE_##name,
      * that there is at least of the variables in this group linked.
      */
     unsigned int getPartNumber(unsigned int imageNr) const;
+
+    /** return a vector which contains a HuginBase::UIntSet for each group with the corresponding images numbers */
+    UIntSetVector getPartsSet() const;
     
     /** get the number of parts.
      *
      * @return the number of unlinked parts in the associated panorama's images.
      */
-    std::size_t getNumberOfParts();
+    std::size_t getNumberOfParts() const;
     
     /** Get the linked status of a particular variable for a given part number.
      * @param variable the variable to check

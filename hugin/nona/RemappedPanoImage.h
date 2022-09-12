@@ -2,7 +2,7 @@
 /** @file nona/RemappedPanoImage.h
  *
  *  Contains functions to transform whole images.
- *  Can use PTools::Transform or PT::SpaceTransform for the calculations
+ *  Can use PTools::Transform or PanoCommand::SpaceTransform for the calculations
  *
  *  @author Pablo d'Angelo <pablo.dangelo@web.de>
  *
@@ -19,26 +19,32 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
 #ifndef _NONA_REMAPPEDPANOIMAGE_H
 #define _NONA_REMAPPEDPANOIMAGE_H
 
-#include <vigra/copyimage.hxx>
+#include <vigra/imageinfo.hxx>
 #include <vigra/initimage.hxx>
-#include <vigra/impex.hxx>
+#include <vigra/copyimage.hxx>
 #include <vigra/flatmorphology.hxx>
 #include <vigra_ext/ROIImage.h>
+#include <vigra_ext/openmp_vigra.h>
 
-#include <appbase/ProgressDisplayOld.h>
+#include <appbase/ProgressDisplay.h>
+#include <nona/StitcherOptions.h>
 
 #include <panodata/SrcPanoImage.h>
 #include <panodata/Mask.h>
 #include <panodata/PanoramaOptions.h>
 #include <panotools/PanoToolsInterface.h>
+
+// default values for exposure cutoff
+#define NONA_DEFAULT_EXPOSURE_LOWER_CUTOFF 1/255.0f
+#define NONA_DEFAULT_EXPOSURE_UPPER_CUTOFF 250/255.0f
 
 
 namespace HuginBase {
@@ -98,7 +104,7 @@ class RemappedPanoImage : public vigra_ext::ROIImage<RemapImage, AlphaImage>
          *
          *  the actual remapping is done by the remapImage() function.
          */
-        RemappedPanoImage()
+        RemappedPanoImage() : m_advancedOptions()
         {};
 
         
@@ -107,25 +113,10 @@ class RemappedPanoImage : public vigra_ext::ROIImage<RemapImage, AlphaImage>
         void setPanoImage(const SrcPanoImage & src,
                           const PanoramaOptions & dest,
                           vigra::Rect2D roi);
-
-    //    /** set a new image or panorama options
-    //     *
-    //     *  This is needed before any of the remap functions can be used.
-    //     *
-    //     *  calculates bounding box, and outline
-    //     */
-    //    void setPanoImage(const vigra::Size2D & srcSize,
-    //                      const PT::VariableMap & srcVars,
-    //                      PT::Lens::LensProjectionFormat srcProj,
-    //                      const PT::PanoImage & img,
-    //                      const vigra::Diff2D &destSize,
-    //                      PT::PanoramaOptions::ProjectionFormat destProj,
-    //                      double destHFOV);
-    //    
-    //    ///
-    //    void setPanoImage(const PT::Panorama & pano, unsigned int imgNr,
-    //                      vigra::Size2D srcSize, const PT::PanoramaOptions & opts);
-        
+        void setAdvancedOptions(const AdvancedOptions& advancedOptions)
+        {
+            m_advancedOptions = advancedOptions;
+        };
 
     public:
         /** calculate distance map. pixels contain distance from image center
@@ -149,7 +140,7 @@ class RemappedPanoImage : public vigra_ext::ROIImage<RemapImage, AlphaImage>
         template <class ImgIter, class ImgAccessor>
         void remapImage(vigra::triple<ImgIter, ImgIter, ImgAccessor> srcImg,
                         vigra_ext::Interpolator interpol,
-                        AppBase::MultiProgressDisplay & progress);
+                        AppBase::ProgressDisplay* progress, bool singleThreaded = false);
 
 
         /** remap a image, with alpha channel */
@@ -158,7 +149,7 @@ class RemappedPanoImage : public vigra_ext::ROIImage<RemapImage, AlphaImage>
         void remapImage(vigra::triple<ImgIter, ImgIter, ImgAccessor> srcImg,
                         std::pair<AlphaIter, AlphaAccessor> alphaImg,
                         vigra_ext::Interpolator interp,
-                        AppBase::MultiProgressDisplay & progress);
+                        AppBase::ProgressDisplay* progress, bool singleThreaded = false);
         
         
     public:
@@ -169,6 +160,7 @@ class RemappedPanoImage : public vigra_ext::ROIImage<RemapImage, AlphaImage>
         SrcPanoImage m_srcImg;
         PanoramaOptions m_destImg;
         PTools::Transform m_transf;
+        AdvancedOptions m_advancedOptions;
 
 };
 
@@ -184,7 +176,7 @@ void remapImage(SrcImgType & srcImg,
                 const PanoramaOptions & dest,
                 vigra::Rect2D outputRect,
                 RemappedPanoImage<DestImgType, MaskImgType> & remapped,
-                AppBase::MultiProgressDisplay & progress);
+                AppBase::ProgressDisplay* progress);
 
 
 } // namespace
@@ -198,19 +190,14 @@ void remapImage(SrcImgType & srcImg,
 
 #include <photometric/ResponseTransform.h>
 #include <vigra_ext/ImageTransforms.h>
-#ifdef USE_GPU_ACCEL
 #include <vigra_ext/ImageTransformsGPU.h>
-#endif
 
-#ifdef DEBUG
-#define DEBUG_REMAP 1
-#endif
+// #define DEBUG_REMAP 1
 
 #ifdef DEBUG_REMAP
-#ifdef WIN32
+#include <vigra/impex.hxx> // for vigra::exportImage()
+#ifdef _WIN32
 #define DEBUG_FILE_PREFIX "C:/temp/"
-#elif defined(ANDROID)
-#define DEBUG_FILE_PREFIX "/sdcard/tmp/"
 #else
 #define DEBUG_FILE_PREFIX "/tmp/"
 #endif
@@ -252,11 +239,11 @@ void RemappedPanoImage<RemapImage,AlphaImage>::setPanoImage(const SrcPanoImage &
  */
 template <class RemapImage, class AlphaImage>
 void RemappedPanoImage<RemapImage,AlphaImage>::setPanoImage(const vigra::Size2D & srcSize,
-                  const PT::VariableMap & srcVars,
-                  PT::Lens::LensProjectionFormat srcProj,
-                  const PT::PanoImage & img,
+                  const PanoCommand::VariableMap & srcVars,
+                  PanoCommand::Lens::LensProjectionFormat srcProj,
+                  const PanoCommand::PanoImage & img,
                   const vigra::Diff2D &destSize,
-                  PT::PanoramaOptions::ProjectionFormat destProj,
+                  HuginBase::PanoramaOptions::ProjectionFormat destProj,
                   double destHFOV)
 {
     m_srcSize = srcSize;
@@ -296,10 +283,10 @@ void RemappedPanoImage<RemapImage,AlphaImage>::setPanoImage(const vigra::Size2D 
 }
 
 template <class RemapImage, class AlphaImage>
-void RemappedPanoImage<RemapImage,AlphaImage>::setPanoImage(const PT::Panorama & pano, unsigned int imgNr,
-                  vigra::Size2D srcSize, const PT::PanoramaOptions & opts)
+void RemappedPanoImage<RemapImage,AlphaImage>::setPanoImage(const HuginBase::Panorama & pano, unsigned int imgNr,
+                  vigra::Size2D srcSize, const HuginBase::PanoramaOptions & opts)
 {
-    const PT::PanoImage & img = pano.getImage(imgNr);
+    const PanoCommand::PanoImage & img = pano.getImage(imgNr);
 
     m_srcSize = srcSize;
     m_srcOrigSize.x = img.getWidth();
@@ -345,8 +332,8 @@ template<class DistImgType>
 void RemappedPanoImage<RemapImage,AlphaImage>::calcSrcCoordImgs(DistImgType & imgX, DistImgType & imgY)
 {
     if (Base::boundingBox().isEmpty()) return;
-    imgX.resize(Base::boundingBox().size());
-    imgY.resize(Base::boundingBox().size());
+    imgX.resize(Base::boundingBox().size().width(), Base::boundingBox().size().height(), vigra::NumericTraits<typename DistImgType::value_type>::max());
+    imgY.resize(Base::boundingBox().size().width(), Base::boundingBox().size().height(), vigra::NumericTraits<typename DistImgType::value_type>::max());
     // calculate the alpha channel,
     int xstart = Base::boundingBox().left();
     int xend   = Base::boundingBox().right();
@@ -367,9 +354,14 @@ void RemappedPanoImage<RemapImage,AlphaImage>::calcSrcCoordImgs(DistImgType & im
         for(int x=xstart; x < xend; ++x, ++xImgY.x, ++xImgX.x)
         {
             double sx,sy;
-            m_transf.transformImgCoord(sx,sy,x,y);
-            accX.set(sx, xImgX);
-            accY.set(sy, xImgY);
+            if (m_transf.transformImgCoord(sx, sy, x, y))
+            {
+                if (m_srcImg.isInside(vigra::Point2D(hugin_utils::roundi(sx), hugin_utils::roundi(sy))))
+                {
+                    accX.set(sx, xImgX);
+                    accY.set(sy, xImgY);
+                };
+            };
         }
     }
 }
@@ -395,13 +387,13 @@ void RemappedPanoImage<RemapImage,AlphaImage>::calcAlpha()
     int ystart = Base::boundingBox().top();
     int yend   = Base::boundingBox().bottom();
 
-// DGSW FIXME - Unreferenced
-//		int interpolHalfWidth=0;
-    // create dist y iterator
-    typename AlphaImage::Iterator yalpha(Base::m_mask.upperLeft());
     // loop over the image and transform
-    for(int y=ystart; y < yend; ++y, ++yalpha.y)
+#pragma omp parallel for schedule(dynamic, 10)
+    for(int y=ystart; y < yend; ++y)
     {
+        // create dist y iterator
+        typename AlphaImage::Iterator yalpha(Base::m_mask.upperLeft());
+        yalpha.y += y - ystart;
         // create x iterators
         typename AlphaImage::Iterator xalpha(yalpha);
         for(int x=xstart; x < xend; ++x, ++xalpha.x)
@@ -426,12 +418,21 @@ void RemappedPanoImage<RemapImage,AlphaImage>::calcAlpha()
     }
 }
 
+/** copies image into new image with changed size */
+template <class ImageType>
+ImageType CopyImageNewSize(const ImageType& image, const vigra::Size2D& newSize)
+{
+    ImageType newImage(newSize);
+    vigra::omp::copyImage(vigra::srcImageRange(image, vigra::Rect2D(newSize)), vigra::destImage(newImage));
+    return newImage;
+};
+
 /** remap a image without alpha channel*/
 template<class RemapImage, class AlphaImage>
 template<class ImgIter, class ImgAccessor>
 void RemappedPanoImage<RemapImage,AlphaImage>::remapImage(vigra::triple<ImgIter, ImgIter, ImgAccessor> srcImg,
                                                           vigra_ext::Interpolator interpol,
-                                                          AppBase::MultiProgressDisplay & progress)
+                                                          AppBase::ProgressDisplay* progress, bool singleThreaded)
 {
 
     //        std::ostringstream msg;
@@ -446,14 +447,15 @@ void RemappedPanoImage<RemapImage,AlphaImage>::remapImage(vigra::triple<ImgIter,
     vigra::Diff2D srcImgSize = srcImg.second - srcImg.first;
 
     vigra::Size2D expectedSize = m_srcImg.getSize();
-    if (useGPU) {
+    if (useGPU)
+    {
         const int r = expectedSize.width() % 8;
         if (r != 0) expectedSize += vigra::Diff2D(8 - r, 0);
     }
 
     DEBUG_DEBUG("srcImgSize: " << srcImgSize << " m_srcImgSize: " << m_srcImg.getSize());
     vigra_precondition(srcImgSize == expectedSize, 
-                       "RemappedPanoImage<RemapImage,AlphaImage>::remapImage(): image sizes not consistent");
+                       "RemappedPanoImage<RemapImage,AlphaImage>::remapImage(): image unexpectedly changed dimensions.");
 
     typedef typename ImgAccessor::value_type input_value_type;
     typedef typename vigra_ext::ValueTypeTraits<input_value_type>::value_type input_component_type;
@@ -466,20 +468,22 @@ void RemappedPanoImage<RemapImage,AlphaImage>::remapImage(vigra::triple<ImgIter,
     if (m_destImg.outputMode == PanoramaOptions::OUTPUT_LDR) {
         // select exposure and response curve for LDR output
         std::vector<double> outLut;
-        vigra_ext::EMoR::createEMoRLUT(m_destImg.outputEMoRParams, outLut);
+        if (!m_destImg.outputEMoRParams.empty())
+        {
+            vigra_ext::EMoR::createEMoRLUT(m_destImg.outputEMoRParams, outLut);
+        };
         double maxVal = vigra_ext::LUTTraits<input_value_type>::max();
-        if (m_destImg.outputPixelType.size() > 0) {
+        if (!m_destImg.outputPixelType.empty()) {
             maxVal = vigra_ext::getMaxValForPixelType(m_destImg.outputPixelType);
         }
 
         invResponse.setOutput(1.0/pow(2.0,m_destImg.outputExposureValue), outLut,
-                              maxVal);
+                              maxVal, m_destImg.outputRangeCompression);
     } else {
         invResponse.setHDROutput(true,1.0/pow(2.0,m_destImg.outputExposureValue));
     }
 
-
-    if ((m_srcImg.hasActiveMasks()) || (m_srcImg.getCropMode() != SrcPanoImage::NO_CROP))
+    if ((m_srcImg.hasActiveMasks()) || (m_srcImg.getCropMode() != SrcPanoImage::NO_CROP) || Nona::GetAdvancedOption(m_advancedOptions, "maskClipExposure", false))
     {
         // need to create and additional alpha image for the crop mask...
         // not very efficient during the remapping phase, but works.
@@ -535,7 +539,12 @@ void RemappedPanoImage<RemapImage,AlphaImage>::remapImage(vigra::triple<ImgIter,
         }
         if(m_srcImg.hasActiveMasks())
             vigra_ext::applyMask(vigra::destImageRange(alpha), m_srcImg.getActiveMasks());
-#ifdef USE_GPU_ACCEL
+        if (Nona::GetAdvancedOption(m_advancedOptions, "maskClipExposure", false))
+        {
+            const float lowerCutoff = Nona::GetAdvancedOption(m_advancedOptions, "maskClipExposureLowerCutoff", NONA_DEFAULT_EXPOSURE_LOWER_CUTOFF);
+            const float upperCutoff = Nona::GetAdvancedOption(m_advancedOptions, "maskClipExposureUpperCutoff", NONA_DEFAULT_EXPOSURE_UPPER_CUTOFF);
+            vigra_ext::applyExposureClipMask(srcImg, vigra::destImageRange(alpha), lowerCutoff, upperCutoff);
+        };
         if (useGPU) {
             transformImageAlphaGPU(srcImg,
                                    vigra::srcImage(alpha),
@@ -547,8 +556,16 @@ void RemappedPanoImage<RemapImage,AlphaImage>::remapImage(vigra::triple<ImgIter,
                                    m_srcImg.horizontalWarpNeeded(),
                                    interpol,
                                    progress);
+            if (Base::boundingBox().right() > m_destImg.getROI().right())
+            {
+                // dest image was enlarged for GPU alignment issue
+                // delete the pixels outside
+                vigra::Rect2D newBoundingBox = Base::boundingBox() & m_destImg.getROI();
+                Base::m_image = CopyImageNewSize(Base::m_image, newBoundingBox.size());
+                Base::m_mask = CopyImageNewSize(Base::m_mask, newBoundingBox.size());
+                Base::m_region = newBoundingBox;
+            };
         } else {
-#endif
             transformImageAlpha(srcImg,
                                 vigra::srcImage(alpha),
                                 destImageRange(Base::m_image),
@@ -558,12 +575,10 @@ void RemappedPanoImage<RemapImage,AlphaImage>::remapImage(vigra::triple<ImgIter,
                                 invResponse,
                                 m_srcImg.horizontalWarpNeeded(),
                                 interpol,
-                                progress);
-#ifdef USE_GPU_ACCEL
+                                progress,
+                                singleThreaded);
         }
-#endif
     } else {
-#ifdef USE_GPU_ACCEL
         if (useGPU) {
             if (srcImgSize != m_srcImg.getSize()) {
                 // src image with was increased for alignment reasons.
@@ -595,9 +610,16 @@ void RemappedPanoImage<RemapImage,AlphaImage>::remapImage(vigra::triple<ImgIter,
                                   interpol,
                                   progress);
             }
-        } else 
-#endif
-	{
+            if (Base::boundingBox().right() > m_destImg.getROI().right())
+            {
+                // dest image was enlarged for GPU alignment issue
+                // delete the pixels outside
+                vigra::Rect2D newBoundingBox = Base::boundingBox() & m_destImg.getROI();
+                Base::m_image = CopyImageNewSize(Base::m_image, newBoundingBox.size());
+                Base::m_mask = CopyImageNewSize(Base::m_mask, newBoundingBox.size());
+                Base::m_region = newBoundingBox;
+            };
+        } else {
             transformImage(srcImg,
                            destImageRange(Base::m_image),
                            destImage(Base::m_mask),
@@ -606,7 +628,8 @@ void RemappedPanoImage<RemapImage,AlphaImage>::remapImage(vigra::triple<ImgIter,
                            invResponse,
                            m_srcImg.horizontalWarpNeeded(),
                            interpol,
-                           progress);
+                           progress,
+                           singleThreaded);
         }
     }
 }
@@ -620,24 +643,25 @@ template<class ImgIter, class ImgAccessor,
 void RemappedPanoImage<RemapImage,AlphaImage>::remapImage(vigra::triple<ImgIter, ImgIter, ImgAccessor> srcImg,
                                                           std::pair<AlphaIter, AlphaAccessor> alphaImg,
                                                           vigra_ext::Interpolator interp,
-                                                          AppBase::MultiProgressDisplay & progress)
+                                                          AppBase::ProgressDisplay* progress, bool singleThreaded)
 {
     const bool useGPU = m_destImg.remapUsingGPU;
 
     if (Base::boundingBox().isEmpty())
         return;
 
+    progress->setMessage("remapping", hugin_utils::stripPath(m_srcImg.getFilename()));
+
     vigra::Diff2D srcImgSize = srcImg.second - srcImg.first;
 
     vigra::Size2D expectedSize = m_srcImg.getSize();
-#ifdef USE_GPU_ACCEL
-    if (useGPU) {
+    if (useGPU)
+    {
         const int r = expectedSize.width() % 8;
         if (r != 0) expectedSize += vigra::Diff2D(8 - r, 0);
     }
-#endif
-    vigra_precondition(srcImgSize == expectedSize, 
-                       "RemappedPanoImage<RemapImage,AlphaImage>::remapImage(): image sizes not consistent");
+    vigra_precondition(srcImgSize == expectedSize,
+                       "RemappedPanoImage<RemapImage,AlphaImage>::remapImage(): image unexpectedly changed dimensions.");
 
     typedef typename ImgAccessor::value_type input_value_type;
     typedef typename vigra_ext::ValueTypeTraits<input_value_type>::value_type input_component_type;
@@ -651,18 +675,21 @@ void RemappedPanoImage<RemapImage,AlphaImage>::remapImage(vigra::triple<ImgIter,
         std::vector<double> outLut;
         // scale up to desired output format
         double maxVal = vigra_ext::LUTTraits<input_value_type>::max();
-        if (m_destImg.outputPixelType.size() > 0) {
+        if (!m_destImg.outputPixelType.empty()) {
             maxVal = vigra_ext::getMaxValForPixelType(m_destImg.outputPixelType);
         }
-        vigra_ext::EMoR::createEMoRLUT(m_destImg.outputEMoRParams, outLut);
-		vigra_ext::enforceMonotonicity(outLut);
+        if (!m_destImg.outputEMoRParams.empty())
+        {
+            vigra_ext::EMoR::createEMoRLUT(m_destImg.outputEMoRParams, outLut);
+            vigra_ext::enforceMonotonicity(outLut);
+        };
         invResponse.setOutput(1.0/pow(2.0,m_destImg.outputExposureValue), outLut,
-                              maxVal);
+                              maxVal, m_destImg.outputRangeCompression);
     } else {
         invResponse.setHDROutput(true,1.0/pow(2.0,m_destImg.outputExposureValue));
     }
 
-    if (((m_srcImg.hasActiveMasks()) || (m_srcImg.getCropMode() != SrcPanoImage::NO_CROP))) {
+    if ((m_srcImg.hasActiveMasks()) || (m_srcImg.getCropMode() != SrcPanoImage::NO_CROP) || Nona::GetAdvancedOption(m_advancedOptions, "maskClipExposure", false)) {
         vigra::BImage alpha(srcImgSize);
         vigra::Rect2D cR = m_srcImg.getCropRect();
         switch (m_srcImg.getCropMode()) {
@@ -707,7 +734,12 @@ void RemappedPanoImage<RemapImage,AlphaImage>::remapImage(vigra::triple<ImgIter,
         }
         if(m_srcImg.hasActiveMasks())
             vigra_ext::applyMask(vigra::destImageRange(alpha), m_srcImg.getActiveMasks());
-#ifdef USE_GPU_ACCEL
+        if (Nona::GetAdvancedOption(m_advancedOptions, "maskClipExposure", false))
+        {
+            const float lowerCutoff = Nona::GetAdvancedOption(m_advancedOptions, "maskClipExposureLowerCutoff", NONA_DEFAULT_EXPOSURE_LOWER_CUTOFF);
+            const float upperCutoff = Nona::GetAdvancedOption(m_advancedOptions, "maskClipExposureUpperCutoff", NONA_DEFAULT_EXPOSURE_UPPER_CUTOFF);
+            vigra_ext::applyExposureClipMask(srcImg, vigra::destImageRange(alpha), lowerCutoff, upperCutoff);
+        };
         if (useGPU) {
             vigra_ext::transformImageAlphaGPU(srcImg,
                                               vigra::srcImage(alpha),
@@ -719,9 +751,16 @@ void RemappedPanoImage<RemapImage,AlphaImage>::remapImage(vigra::triple<ImgIter,
                                               m_srcImg.horizontalWarpNeeded(),
                                               interp,
                                               progress);
-        } else 
-#endif
-	{
+            if (Base::boundingBox().right() > m_destImg.getROI().right())
+            {
+                // dest image was enlarged for GPU alignment issue
+                // delete the pixels outside
+                vigra::Rect2D newBoundingBox = Base::boundingBox() & m_destImg.getROI();
+                Base::m_image = CopyImageNewSize(Base::m_image, newBoundingBox.size());
+                Base::m_mask = CopyImageNewSize(Base::m_mask, newBoundingBox.size());
+                Base::m_region = newBoundingBox;
+            };
+        } else {
             vigra_ext::transformImageAlpha(srcImg,
                                            vigra::srcImage(alpha),
                                            destImageRange(Base::m_image),
@@ -731,10 +770,10 @@ void RemappedPanoImage<RemapImage,AlphaImage>::remapImage(vigra::triple<ImgIter,
                                            invResponse,
                                            m_srcImg.horizontalWarpNeeded(),
                                            interp,
-                                           progress);
+                                           progress,
+                                           singleThreaded);
         }
     } else {
-#ifdef USE_GPU_ACCEL
         if (useGPU) {
             // extended region (if any) should already be cleared since ImportImageAlpha shouldn't have touched it.
             vigra_ext::transformImageAlphaGPU(srcImg,
@@ -747,9 +786,16 @@ void RemappedPanoImage<RemapImage,AlphaImage>::remapImage(vigra::triple<ImgIter,
                                               m_srcImg.horizontalWarpNeeded(),
                                               interp,
                                               progress);
-        } else
-#endif
-	{
+            if (Base::boundingBox().right() > m_destImg.getROI().right())
+            {
+                // dest image was enlarged for GPU alignment issue
+                // delete the pixels outside
+                vigra::Rect2D newBoundingBox = Base::boundingBox() & m_destImg.getROI();
+                Base::m_image = CopyImageNewSize(Base::m_image, newBoundingBox.size());
+                Base::m_mask = CopyImageNewSize(Base::m_mask, newBoundingBox.size());
+                Base::m_region = newBoundingBox;
+            };
+        } else {
             vigra_ext::transformImageAlpha(srcImg,
                                            alphaImg,
                                            destImageRange(Base::m_image),
@@ -759,7 +805,8 @@ void RemappedPanoImage<RemapImage,AlphaImage>::remapImage(vigra::triple<ImgIter,
                                            invResponse,
                                            m_srcImg.horizontalWarpNeeded(),
                                            interp,
-                                           progress);
+                                           progress,
+                                           singleThreaded);
         }
     }
 }
@@ -780,13 +827,8 @@ void remapImage(SrcImgType & srcImg,
                 vigra::Rect2D outputROI,
 //                vigra_ext::Interpolator interpolator,
                 RemappedPanoImage<DestImgType, MaskImgType> & remapped,
-                AppBase::MultiProgressDisplay & progress)
+                AppBase::ProgressDisplay* progress)
 {
-    typedef typename SrcImgType::value_type SrcPixelType;
-    typedef typename DestImgType::value_type DestPixelType;
-
-    typedef typename vigra::NumericTraits<SrcPixelType>::RealPromote RSrcPixelType;
-
 #ifdef DEBUG_REMAP
     {
         vigra::ImageExportInfo exi( DEBUG_FILE_PREFIX "hugin03_BeforeRemap.tif");
@@ -800,7 +842,7 @@ void remapImage(SrcImgType & srcImg,
     }
 #endif
 
-    progress.setMessage(std::string("remapping ") + hugin_utils::stripPath(src.getFilename()));
+    progress->setMessage("remapping", hugin_utils::stripPath(src.getFilename()));
     // set pano image
     DEBUG_DEBUG("setting src image with size: " << src.getSize());
     remapped.setPanoImage(src, dest, outputROI);

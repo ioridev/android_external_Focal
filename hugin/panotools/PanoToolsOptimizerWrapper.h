@@ -18,8 +18,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -35,11 +35,11 @@ namespace PTools
 {
     
     /*
-     unsigned int optimize_PT(const PT::Panorama & pano,
-                      const PT::UIntVector &imgs,
-                      const PT::OptimizeVector & optvec,
-                      PT::VariableMapVector & vars,
-                      PT::CPVector & cps,
+     unsigned int optimize_PT(const HuginBase::Panorama & pano,
+                      const PanoCommand::UIntVector &imgs,
+                      const PanoCommand::OptimizeVector & optvec,
+                      PanoCommand::VariableMapVector & vars,
+                      PanoCommand::CPVector & cps,
                       int maxIter=1000);
      */
 

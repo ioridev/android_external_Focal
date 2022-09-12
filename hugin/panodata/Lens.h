@@ -20,8 +20,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -50,22 +50,6 @@ class IMPEX Lens {
          *
          */
         Lens();
-        
-        
-    public:
-        ///
-    //  QDomElement toXML(QDomDocument & doc);
-        
-        ///
-    //  void setFromXML(const QDomNode & node);
-
-        /** try to fill Lens data (HFOV) from EXIF header
-         *
-         *  @return true if focal length was found, lens will contain
-         *          the correct data.
-         */
-    //  bool readEXIF(const std::string & filename);
-
         
     public:
         /** get projection type */
@@ -101,9 +85,6 @@ class IMPEX Lens {
          */
         bool isLandscape() const;
         
-        /** set the exposure value */
-        void setEV(double ev);
-
         /** get the image size, in pixels */
         vigra::Size2D getImageSize() const
         { return m_imageSize; }

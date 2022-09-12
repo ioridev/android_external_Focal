@@ -16,60 +16,91 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
 #include "LayerStacks.h"
 
 #include <panodata/PanoramaData.h>
+#include <panodata/StandardImageVariableGroups.h>
 #include <algorithms/basic/CalculateOverlap.h>
+#include <algorithms/optimizer/ImageGraph.h>
 #include <algorithms/nona/ComputeImageROI.h>
 
 namespace HuginBase
 {
-using namespace std;
 
-vector<UIntSet> getHDRStacks(const PanoramaData & pano, UIntSet allImgs, PanoramaOptions opts)
+std::vector<UIntSet> getHDRStacks(const PanoramaData & pano, UIntSet allImgs, PanoramaOptions opts)
 {
-    vector<UIntSet> result;
+    std::vector<UIntSet> result;
 
     // if no images are available, return empty result vector
     if ( allImgs.empty() )
     {
         return result;
     }
+
+    // special case: for a negtive overlap use the assigned stacks and skip
+    // overlap calculation
+    if (opts.outputStacksMinOverlap < 0)
+    {
+        // first get all stacks
+        HuginBase::ConstStandardImageVariableGroups variable_groups(pano);
+        std::vector<UIntSet> allStacks = variable_groups.getStacks().getPartsSet();
+        std::vector<UIntSet> activeStacks;
+        for (const auto& singleStack : allStacks)
+        {
+            // now check that each stack contains only active images
+            UIntSet activeImgsInStack;
+            std::set_intersection(singleStack.begin(), singleStack.end(), allImgs.begin(), allImgs.end(), std::inserter(activeImgsInStack, activeImgsInStack.begin()));
+            if (!activeImgsInStack.empty())
+            {
+                activeStacks.push_back(activeImgsInStack);
+            };
+        }
+        return activeStacks;
+    };
 
     UIntSet stack;
 
     CalculateImageOverlap overlap(&pano);
     overlap.calculate(10);  // we are testing 10*10=100 points
-    do {
-        unsigned srcImg = *(allImgs.begin());
+    do
+    {
+        const unsigned srcImg = *(allImgs.begin());
         stack.insert(srcImg);
         allImgs.erase(srcImg);
 
         // find all images that have a suitable overlap.
-        for (UIntSet::iterator it = allImgs.begin(); it !=  allImgs.end(); ) {
-            unsigned srcImg2 = *it;
-            it++;
-            if(overlap.getOverlap(srcImg,srcImg2)>opts.outputStacksMinOverlap)
+        for (UIntSet::const_iterator it = allImgs.begin(); it != allImgs.end(); ++it)
+        {
+            const unsigned srcImg2 = *it;
+            if (overlap.getOverlap(srcImg, srcImg2) > opts.outputStacksMinOverlap)
             {
                 stack.insert(srcImg2);
-                allImgs.erase(srcImg2);
-            }
-        }
+            };
+        };
+        for (UIntSet::const_iterator it = stack.begin(); it != stack.end(); ++it)
+        {
+            allImgs.erase(*it);
+        };
         result.push_back(stack);
         stack.clear();
-    } while (allImgs.size() > 0);
+    } while (!allImgs.empty());
 
     return result;
 }
 
-vector<UIntSet> getExposureLayers(const PanoramaData & pano, UIntSet allImgs, PanoramaOptions opts)
+std::vector<UIntSet> getExposureLayers(const PanoramaData & pano, UIntSet allImgs, PanoramaOptions opts)
 {
-    vector<UIntSet> result;
+    return getExposureLayers(pano, allImgs, opts.outputLayersExposureDiff);
+};
+
+std::vector<UIntSet> getExposureLayers(const PanoramaData & pano, UIntSet allImgs, const double maxEVDiff)
+{
+    std::vector<UIntSet> result;
 
     // if no images are available, return empty result vector
     if ( allImgs.empty() )
@@ -77,45 +108,136 @@ vector<UIntSet> getExposureLayers(const PanoramaData & pano, UIntSet allImgs, Pa
         return result;
     }
 
-    UIntSet stack;
+    UIntSet layer;
 
-    do {
-        unsigned srcImg = *(allImgs.begin());
-        stack.insert(srcImg);
+    do
+    {
+        const unsigned srcImg = *(allImgs.begin());
+        layer.insert(srcImg);
         allImgs.erase(srcImg);
 
-        // find all images that have a suitable overlap.
-        SrcPanoImage simg = pano.getSrcImage(srcImg);
-        double maxEVDiff = opts.outputLayersExposureDiff;
-        for (UIntSet::iterator it = allImgs.begin(); it !=  allImgs.end(); ) {
-            unsigned srcImg2 = *it;
-            it++;
-            SrcPanoImage simg2 = pano.getSrcImage(srcImg2);
-            if ( fabs(simg.getExposureValue() - simg2.getExposureValue()) < maxEVDiff )
+        // find all images that have a similar exposure values.
+        const double firstExposureValue = pano.getImage(srcImg).getExposureValue();
+        for (UIntSet::const_iterator it = allImgs.begin(); it !=  allImgs.end(); ++it)
+        {
+            const unsigned srcImg2 = *it;
+            if ( fabs(firstExposureValue - pano.getImage(srcImg2).getExposureValue()) < maxEVDiff )
             {
-                stack.insert(srcImg2);
-                allImgs.erase(srcImg2);
+                layer.insert(srcImg2);
             }
         }
-        result.push_back(stack);
-        stack.clear();
-    } while (allImgs.size() > 0);
+        for (UIntSet::const_iterator it = layer.begin(); it != layer.end(); ++it)
+        {
+            allImgs.erase(*it);
+        };
+        result.push_back(layer);
+        layer.clear();
+    } while (!allImgs.empty());
 
     return result;
 }
 
 UIntSet getImagesinROI (const PanoramaData& pano, const UIntSet activeImages)
 {
+    return getImagesinROI(pano, activeImages, pano.getOptions().getROI());
+}
+
+UIntSet getImagesinROI(const PanoramaData& pano, const UIntSet activeImages, vigra::Rect2D panoROI)
+{
     UIntSet images;
     PanoramaOptions opts = pano.getOptions();
+    opts.setROI(panoROI);
     for (UIntSet::const_iterator it = activeImages.begin(); it != activeImages.end(); ++it)
     {
         vigra::Rect2D roi = estimateOutputROI(pano, opts, *it);
-        if (! (roi.isEmpty())) {
+        if (!(roi.isEmpty()))
+        {
             images.insert(*it);
         }
     }
     return images;
 }
+
+struct SortVectorByExposure
+{
+    explicit SortVectorByExposure(const HuginBase::Panorama* pano) : m_pano(pano) {};
+    bool operator()(const size_t& img1, const size_t& img2)
+    {
+        return m_pano->getImage(img1).getExposureValue() < m_pano->getImage(img2).getExposureValue();
+    }
+private:
+    const HuginBase::Panorama* m_pano;
+};
+
+std::vector<HuginBase::UIntVector> getSortedStacks(const HuginBase::Panorama* pano)
+{
+    std::vector<HuginBase::UIntVector> stacks;
+    if (pano->getNrOfImages() == 0)
+    {
+        return stacks;
+    };
+    HuginBase::ConstStandardImageVariableGroups variable_groups(*pano);
+    HuginBase::UIntSetVector imageGroups = variable_groups.getStacks().getPartsSet();
+    //get image with median exposure for search with cp generator
+    for (size_t imgGroup = 0; imgGroup < imageGroups.size(); ++imgGroup)
+    {
+        HuginBase::UIntVector stackImages(imageGroups[imgGroup].begin(), imageGroups[imgGroup].end());
+        std::sort(stackImages.begin(), stackImages.end(), SortVectorByExposure(pano));
+        stacks.push_back(stackImages);
+    };
+    return stacks;
+};
+
+class GraphVisitor:public HuginGraph::BreadthFirstSearchVisitor
+{
+public:
+    virtual void Visit(const size_t vertex, const HuginBase::UIntSet& visitedNeighbors, const HuginBase::UIntSet& unvisitedNeighbors)
+    {
+        images.push_back(vertex);
+    };
+    UIntVector GetTranslatedImageNumbers(const UIntVector& translatedImgNumbers) const
+    {
+        UIntVector result(images.size(), 0);
+        for (size_t i = 0; i < images.size(); ++i)
+        {
+            result[i] = translatedImgNumbers[images[i]];
+        };
+        return result;
+    };
+private:
+    UIntVector images;
+};
+
+UIntVector getEstimatedBlendingOrder(const PanoramaData & pano, const UIntSet& images, const unsigned int referenceImage)
+{
+    if (images.empty())
+    {
+        return UIntVector();
+    };
+    unsigned int refImage;
+    if (set_contains(images, referenceImage))
+    {
+        refImage = referenceImage;
+    }
+    else
+    {
+        refImage = *images.begin();
+    }
+    // store a vector for translating image numbers later
+    HuginBase::UIntVector subpanoImages;
+    std::copy(images.begin(), images.end(), std::back_inserter(subpanoImages));
+    // create subpano with all active images, don't forget to delete at end
+    HuginBase::PanoramaData* subPano = pano.getNewSubset(images);
+    // calculate overlap
+    CalculateImageOverlap overlap(subPano);
+    overlap.calculate(10);  // we are testing 10*10=100 points
+    // now build ImageGraph and iterate all images
+    HuginGraph::ImageGraph graph(overlap);
+    GraphVisitor graphVisitor;
+    graph.VisitAllImages(refImage, true, &graphVisitor);
+    delete subPano;
+    // translate image numbers to original images
+    return graphVisitor.GetTranslatedImageNumbers(subpanoImages);
+};
 
 }

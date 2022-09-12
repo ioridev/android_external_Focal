@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -26,6 +26,7 @@
 
 #include <vector>
 #include <functional>
+#include "hugin_config.h"
 
 #include <vigra/stdimage.hxx>
 #include <vigra/transformimage.hxx>
@@ -35,8 +36,7 @@
 
 #include <vigra_ext/utils.h>
 
-#include <boost/random/mersenne_twister.hpp>
-
+#include <random>
 
 //#define DEBUG_WRITE_FILES
 
@@ -231,7 +231,7 @@ bool ditheringNeeded(T const &)
 template <class T>
 struct DitherFunctor
 {
-    boost::mt19937 Twister;
+    std::mt19937 Twister;
 
     typedef T result_type;
 
@@ -242,7 +242,7 @@ struct DitherFunctor
     // Such regions are especially objectionable in the green channel of 8-bit images.
     double dither(const double &v) const
     {
-        boost::mt19937 &mt = const_cast<boost::mt19937 &>(Twister);
+        std::mt19937 &mt = const_cast<std::mt19937 &>(Twister);
         double vFraction = v - floor(v);
         // Only dither values within a certain range of the rounding cutoff point.
         if (vFraction > 0.25 && vFraction <= 0.75) {
@@ -425,7 +425,6 @@ void flatfieldVigCorrection(vigra::triple<ImgIter, ImgIter, ImgAccessor> srcImg,
     typedef typename vigra::NumericTraits<PT>::RealPromote RPT;
     typedef typename FFAccessor::value_type FFT;
     typedef typename vigra::NumericTraits<FFT>::RealPromote RFFT;
-    typedef typename DestAccessor::value_type OPT;
 
     typedef PassThroughFunctor<RPT> RnF;
     typedef LinearTransformFunctor<RPT> LTF;
@@ -475,7 +474,6 @@ void radialVigCorrection(vigra::triple<ImgIter, ImgIter, ImgAccessor> srcImg,
 {
     typedef typename ImgAccessor::value_type PT;
     typedef typename vigra::NumericTraits<PT>::RealPromote RPT;
-    typedef typename ImgAccessor::value_type OutPixelType;
 
     typedef PolySqDistFunctor<4> PolyF;
     typedef PassThroughFunctor<RPT> RnF;
@@ -573,7 +571,7 @@ void correctRespVigExpInv(vigra::triple<ImgIter, ImgIter, ImgAccessor> srcImg,
 
     // adjust functor
 
-    if (EMoRCoeff.size() == 0) {
+    if (EMoRCoeff.empty()) {
         RnF Rf;
         if (division) {
             applyRadialVigCorrectionDither(srcImg, destImg, center.x, center.y,

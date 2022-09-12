@@ -22,8 +22,8 @@
  *  General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -46,14 +46,16 @@
 #include "PanoramaVariable.h"
 #include "ImageVariable.h"
 #include "Mask.h"
-
-#include <exiv2/exif.hpp>
+#include <map>
 
 #endif // _HSI_IGNORE_SECTION
 
 namespace HuginBase {
 
 class Panorama;
+
+/** typedef for general map for storing metadata in files */
+typedef std::map<std::string, std::string> FileMetaData;
 
 /** Base class containing all the variables, but missing some of the other
  * important functions and with some daft accessors.
@@ -109,9 +111,7 @@ public:
 public:
     ///
     BaseSrcPanoImage()
-    {
-        setDefaults();
-    }
+    {};
     
     virtual ~BaseSrcPanoImage() {};
     
@@ -176,12 +176,9 @@ public:
 #undef image_variable
 
 protected:
-    ///
-    void setDefaults();
-
     // the image variables m_[variable name]
 #define image_variable( name, type, default_value ) \
-    ImageVariable<type > m_##name;
+    ImageVariable<type> m_##name {ImageVariable<type>(default_value)};
 #include "image_variables.h"
 #undef image_variable
 };
@@ -198,33 +195,17 @@ class IMPEX SrcPanoImage : public BaseSrcPanoImage
 {
 public:
     ///
-    SrcPanoImage()
+    SrcPanoImage() :BaseSrcPanoImage()
+    {};
+
+    SrcPanoImage(const BaseSrcPanoImage::Projection projection, const double hfov, const vigra::Size2D size) :BaseSrcPanoImage()
     {
-        setDefaults();
-        successfullEXIFread=false;
-    }
+        setProjection(projection);
+        setHFOV(hfov);
+        setSize(size);
+    };
     
     virtual ~SrcPanoImage() {};
-public:
-    /** initialize a SrcPanoImage from a file. Will read image
-     *  size and EXIF data to initialize as many fields as possible
-     *  (most importatly HFOV and exposure value)
-     */
-    SrcPanoImage(const std::string &filename)
-    {
-        std::cout << "setDefaults..." << std::endl;
-        setDefaults();
-        m_Filename = filename;
-        double crop = 0;
-        double fl = 0;
-        std::cout << "reading EXIF..." << std::endl;
-        successfullEXIFread=readEXIF(fl, crop, true, true);
-        std::cout << "SrcPanoImage ready" << std::endl;
-    };
-    /** return true, if EXIF infomation was read sucessful */
-    const bool hasEXIFread() const {return successfullEXIFread;};
-    
-    
 public:
     /** "resize" image,
      *  adjusts all distortion coefficients for usage with a source image
@@ -362,13 +343,13 @@ public:
     void linkStack (SrcPanoImage * target)
     { m_Stack.linkWith(&(target->m_Stack)); }
     
+    /** check if the image size is known, if try to load the information from the file */
+    bool checkImageSizeKnown();
     /** try to fill out information about the image, by examining the exif data
-    *  focalLength and cropFactor will be updated with the ones read from the exif data
-    *  If no or not enought exif data was found and valid given focalLength and cropFactor
-    *  settings where provided, they will be used for computation of the HFOV.
     */
-    bool readEXIF(double & focalLength, double & cropFactor, bool applyEXIF, bool applyExposureValue);
-    bool readEXIF(double & focalLength, double & cropFactor, double & eV, bool applyEXIF, bool applyExposureValue);
+    bool readEXIF();
+    /** apply values found in EXIF data to SrcPanoImage class, call readEXIF() before to initialize some values*/
+    bool applyEXIFValues(bool applyEVValue=true);
     
     /** calculate hfov of an image given focal length, image size and crop factor */
     static double calcHFOV(SrcPanoImage::Projection proj, double fl, double crop, vigra::Size2D imageSize);
@@ -379,27 +360,36 @@ public:
     /** calculate crop factor, given focal length and hfov */
     static double calcCropFactor(SrcPanoImage::Projection proj, double hfov, double focalLength, vigra::Size2D imageSize);
 
+    /** calculate exposure value */
+    double calcExifExposureValue();
+
     /** updates the focal length, changes the hfov to reflect thew newFocalLength */
     void updateFocalLength(double newFocalLength);
     /** updates the crop factor, the hfov is calculates so that focal length remains the same */
     void updateCropFactor(double focalLength, double newCropFactor);
 
-    /** tries to read cropfactor from lensfun database
+    /** tries to read cropfactor from lens database
         you need to call SrcPanoImage::readEXIF before to fill some values 
         @return true, if information could be read from database */
     bool readCropfactorFromDB();
-    /** tries to read projection and crop area from lensfun database
+    /** tries to read projection and crop area from lens database
         you need to call SrcPanoImage::readEXIF before to fill some values 
+        @param ignoreFovRectilinear if this parameter is true, the fov of
+          rectilinear is not read from the database, otherwise the hfov
+          is populated with the value from the database
         @return true, if information could be read from database */
-    bool readProjectionFromDB();
-    /** tries to read distortion data from lensfun database
+    bool readProjectionFromDB(const bool ignoreFovRectilinear=true);
+    /** tries to read distortion data from lens database
         you need to call SrcPanoImage::readEXIF before to fill some values 
         @return true, if information could be read from database */
     bool readDistortionFromDB();
-    /** tries to read vignetting data from lensfun database
+    /** tries to read vignetting data from lens database
         you need to call SrcPanoImage::readEXIF before to fill some values 
         @return true, if information could be read from database */
     bool readVignettingFromDB();
+    /** constructs the lens name for the database
+        it is the lensname if known, for compact cameras it is constructed from camera maker and camera model */
+    std::string getDBLensName() const;
 
     /** returns true, if image has masks associated */
     bool hasMasks() const;
@@ -425,15 +415,9 @@ public:
     bool isInsideMasks(vigra::Point2D p) const;
 
 private:
-    /** convenience functions to work with Exiv2 */
-    bool getExiv2Value(Exiv2::ExifData& exifData, std::string keyName, long & value);
-    bool getExiv2Value(Exiv2::ExifData& exifData, std::string keyName, float & value);
-    bool getExiv2Value(Exiv2::ExifData& exifData, std::string keyName, std::string & value);
-    bool getExiv2Value(Exiv2::ExifData& exifData, uint16_t tagID, std::string groupName, std::string & value);
 
     /** Check if Exiv orientation tag can be trusted */
     bool trustExivOrientation();
-    bool successfullEXIFread;
 };
 
 typedef std::vector<SrcPanoImage> ImageVector;

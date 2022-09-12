@@ -18,8 +18,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -41,7 +41,7 @@ class IMPEX CalculateCPStatistics : public PanoramaAlgorithm
     protected:
         ///
         CalculateCPStatistics(PanoramaData& panorama, const int& imgNr=-1)
-         : PanoramaAlgorithm(panorama), o_imageNumber(imgNr)
+            : PanoramaAlgorithm(panorama), o_imageNumber(imgNr), o_resultMin(0), o_resultMax(0), o_resultMean(0), o_resultVar(0)
         {};
         
     public:
@@ -103,6 +103,9 @@ class IMPEX CalculateCPStatisticsError : public CalculateCPStatistics
         CalculateCPStatisticsError(PanoramaData& panorama, const int& imgNr=-1)
          : CalculateCPStatistics(panorama, imgNr)
         {};
+        CalculateCPStatisticsError(PanoramaData& panorama, const bool onlyActive, const bool ignoreLineCps=false)
+            :CalculateCPStatistics(panorama, -1), m_onlyActiveImages(onlyActive), m_ignoreLineCps(ignoreLineCps)
+        {};
         
         ///
         virtual ~CalculateCPStatisticsError() {};
@@ -113,7 +116,9 @@ class IMPEX CalculateCPStatisticsError : public CalculateCPStatistics
         static void calcCtrlPntsErrorStats(const PanoramaData& pano,
                                            double & min, double & max, double & mean,
                                            double & var,
-                                           const int& imgNr=-1);
+                                           const int& imgNr=-1, 
+                                           const bool onlyActive=false,
+                                           const bool ignoreLineCp=false);
         
         
     public:
@@ -123,10 +128,12 @@ class IMPEX CalculateCPStatisticsError : public CalculateCPStatistics
             calcCtrlPntsErrorStats(o_panorama, 
                                    o_resultMin, o_resultMax, o_resultMean,
                                    o_resultVar,
-                                   o_imageNumber);
+                                   o_imageNumber, m_onlyActiveImages, m_ignoreLineCps);
             return true; // let's hope so.
         }
-        
+    private:
+        bool m_onlyActiveImages = false;
+        bool m_ignoreLineCps = false;
 };
 
 
@@ -136,7 +143,7 @@ class IMPEX CalculateCPStatisticsRadial : public CalculateCPStatistics
     public:
         ///
         CalculateCPStatisticsRadial(PanoramaData& panorama, const int& imgNr=-1)
-         : CalculateCPStatistics(panorama, imgNr)
+            : CalculateCPStatistics(panorama, imgNr), o_resultQ10(0), o_resultQ90(0)
         {};
         
         ///

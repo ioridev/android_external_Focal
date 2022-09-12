@@ -22,25 +22,24 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
 #include "CleanCP.h"
 #include <algorithms/optimizer/PTOptimizer.h>
 #include "algorithms/basic/CalculateCPStatistics.h"
+#include "hugin_base/panotools/PanoToolsUtils.h"
 
 namespace HuginBase {
-using namespace std;
 
-UIntSet getCPoutsideLimit_pair(Panorama pano, double n)
+UIntSet getCPoutsideLimit_pair(Panorama pano, AppBase::ProgressDisplay& progress, double n)
 {
     CPVector allCP=pano.getCtrlPoints();
     unsigned int nrImg=pano.getNrOfImages();
     PanoramaOptions opts=pano.getOptions();
     //set projection to equrectangular for optimisation
-    PanoramaOptions::ProjectionFormat oldproj=opts.getProjection();
     opts.setProjection(PanoramaOptions::EQUIRECTANGULAR);
     pano.setOptions(opts);
     UIntSet CPtoRemove;
@@ -49,7 +48,7 @@ UIntSet getCPoutsideLimit_pair(Panorama pano, double n)
     // after it remove cp with errors > median/mean + n*sigma
     for (unsigned int image1=0; image1<nrImg-1; image1++)
     {
-        SrcPanoImage img=pano.getImage(image1);
+        const SrcPanoImage& img=pano.getImage(image1);
         for (unsigned int image2=image1+1; image2<nrImg; image2++)
         {
             //do not check linked image pairs
@@ -66,12 +65,13 @@ UIntSet getCPoutsideLimit_pair(Panorama pano, double n)
                 // remove all horizontal and vertical control points
                 CPVector cpl = clean.getCtrlPoints();
                 CPVector newCP;
-                for (CPVector::const_iterator it = cpl.begin(); it != cpl.end(); it++) 
+                for (CPVector::const_iterator it = cpl.begin(); it != cpl.end(); ++it) 
                     if (it->mode == ControlPoint::X_Y)
                         newCP.push_back(*it);
                 clean.setCtrlPoints(newCP);
 
-                if(clean.getNrOfCtrlPoints()>1)
+                // we need at least 3 cp to optimize 3 variables: yaw, pitch and roll
+                if(clean.getNrOfCtrlPoints()>3)
                 {
                     //optimize position and hfov
                     OptimizeVector optvec;
@@ -89,12 +89,14 @@ UIntSet getCPoutsideLimit_pair(Panorama pano, double n)
                     //calculate statistic and determine limit
                     double min,max,mean,var;
                     CalculateCPStatisticsError::calcCtrlPntsErrorStats(clean,min,max,mean,var);
-                    double limit=mean+n*sqrt(var);
+                    // if the standard deviation is bigger than the value, assume we have a lot of
+                    // false cp, in this case take the mean value directly as limit
+                    double limit = (sqrt(var) > mean) ? mean : (mean + n*sqrt(var));
 
                     //identify cp with big error
                     unsigned int index=0;
                     unsigned int cpcounter=0;
-                    for (CPVector::const_iterator it = allCP.begin(); it != allCP.end(); it++)
+                    for (CPVector::const_iterator it = allCP.begin(); it != allCP.end(); ++it)
                     {
                         if(it->mode == ControlPoint::X_Y)
                             if((it->image1Nr==image1 && it->image2Nr==image2) ||
@@ -108,40 +110,73 @@ UIntSet getCPoutsideLimit_pair(Panorama pano, double n)
                     };
                 };
             };
+            if (!progress.updateDisplayValue())
+            {
+                return CPtoRemove;
+            };
         };
     };
 
     return CPtoRemove;
 };
 
-UIntSet getCPoutsideLimit(Panorama pano, double n,bool skipOptimisation)
+UIntSet getCPoutsideLimit(Panorama pano, double n, bool skipOptimisation, bool includeLineCp)
 {
     UIntSet CPtoRemove;
-    if(!skipOptimisation)
+    if(skipOptimisation)
     {
+        //calculate current cp errors
+        HuginBase::PTools::calcCtrlPointErrors(pano);
+    }
+    else
+    {
+        //optimize pano, after optimization pano contains the cp errors of the optimized project
         SmartOptimise::smartOptimize(pano);
     };
     CPVector allCP=pano.getCtrlPoints();
-    //remove all horizontal and vertical CP for calculation of mean and sigma
-    CPVector CPxy;
-    for (CPVector::const_iterator it = allCP.begin(); it != allCP.end(); it++)
+    if(!includeLineCp)
     {
-        if(it->mode == ControlPoint::X_Y)
-            CPxy.push_back(*it);
+        //remove all horizontal and vertical CP for calculation of mean and sigma
+        CPVector CPxy;
+        for (CPVector::const_iterator it = allCP.begin(); it != allCP.end(); ++it)
+        {
+            if(it->mode == ControlPoint::X_Y)
+                CPxy.push_back(*it);
+        };
+        pano.setCtrlPoints(CPxy);
     };
-    pano.setCtrlPoints(CPxy);
     //calculate mean and sigma
     double min,max,mean,var;
     CalculateCPStatisticsError::calcCtrlPntsErrorStats(pano,min,max,mean,var);
-    pano.setCtrlPoints(allCP);
-    double limit=mean+n*sqrt(var);
+    if(!includeLineCp)
+    {
+        pano.setCtrlPoints(allCP);
+    };
+    // if the standard deviation is bigger than the value, assume we have a lot of
+    // false cp, in this case take the mean value directly as limit
+    double limit = (sqrt(var) > mean) ? mean : (mean + n*sqrt(var));
 
     //now determine all control points with error > limit 
     unsigned int index=0;
-    for (CPVector::const_iterator it = allCP.begin(); it != allCP.end(); it++)
+    for (CPVector::const_iterator it = allCP.begin(); it != allCP.end(); ++it)
     {
-        if((it->mode == ControlPoint::X_Y) && (it->error > limit))
-            CPtoRemove.insert(index);
+        if(it->error > limit)
+        {
+            if(includeLineCp)
+            {
+                // all cp are treated the same
+                // no need for further checks
+                CPtoRemove.insert(index);
+            }
+            else
+            {
+                //check only normal cp
+                if(it->mode == ControlPoint::X_Y)
+                {
+                    CPtoRemove.insert(index);
+                };
+            };
+        };
         index++;
     };
 
@@ -152,7 +187,7 @@ UIntSet getCPinMasks(HuginBase::Panorama pano)
 {
     HuginBase::UIntSet cps;
     HuginBase::CPVector cpList=pano.getCtrlPoints();
-    if(cpList.size()>0)
+    if(!cpList.empty())
     {
         for(unsigned int i=0;i<cpList.size();i++)
         {
@@ -167,7 +202,7 @@ UIntSet getCPinMasks(HuginBase::Panorama pano)
             //   but it would require that the pano is correctly align, otherwise the positive masks
             //   would not correctly checked
             HuginBase::MaskPolygonVector masks=pano.getImage(cp.image1Nr).getMasks();
-            if(masks.size()>0)
+            if(!masks.empty())
             {
                 unsigned int j=0;
                 while((!insideMask) && (j<masks.size()))
@@ -180,7 +215,7 @@ UIntSet getCPinMasks(HuginBase::Panorama pano)
             if(!insideMask)
             {
                 masks=pano.getImage(cp.image2Nr).getMasks();
-                if(masks.size()>0)
+                if(!masks.empty())
                 {
                     unsigned int j=0;
                     while((!insideMask) && (j<masks.size()))

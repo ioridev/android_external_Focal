@@ -19,18 +19,17 @@
  *  General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
 #include <hugin_config.h>
-#include <hugin_version.h>
 #include <fstream>
 #include <sstream>
+#include <iostream>
 
 #include <vigra/error.hxx>
-#include <vigra/impex.hxx>
 #include <vigra/cornerdetection.hxx>
 #include <vigra/localminmax.hxx>
 #include <hugin_utils/utils.h>
@@ -38,6 +37,7 @@
 #include <vigra_ext/Pyramid.h>
 #include <vigra_ext/Correlation.h>
 #include <vigra_ext/InterestPoints.h>
+#include <vigra_ext/impexalpha.hxx>
 
 #include <panodata/Panorama.h>
 #include <panotools/PanoToolsOptimizerWrapper.h>
@@ -45,137 +45,244 @@
 #include <algorithms/optimizer/PTOptimizer.h>
 #include <nona/Stitcher.h>
 #include <algorithms/basic/CalculateOptimalROI.h>
+#include <lensdb/LensDB.h>
 
-#ifdef WIN32
- #include <getopt.h>
-#else
- #include <unistd.h>
-#endif
+#include <getopt.h>
 
-
+#include <hugin_utils/openmp_lock.h>
 #include <tiff.h>
 
-using namespace vigra;
-using namespace HuginBase;
-using namespace AppBase;
-using namespace std;
-using namespace vigra_ext;
-using namespace HuginBase::PTools;
-using namespace HuginBase::Nona;
+#ifdef __APPLE__
+#include <hugin_config.h>
+#include <mach-o/dyld.h> /* _NSGetExecutablePath */
+#include <limits.h>      /* PATH_MAX */
+#include <libgen.h>      /* dirname */
+#endif
 
 int g_verbose = 0;
 
-static void usage(const char * name)
+static void usage(const char *name)
 {
-    cerr << name << ": align overlapping images for HDR creation" << std::endl
-         << "align_image_stack version " << DISPLAY_VERSION << std::endl
-         << std::endl
-         << "Usage: " << name  << " [options] input files" << std::endl
-         << "Valid options are:" << std::endl
-         << " Modes of operation:" << std::endl
-         << "  -p file   Output .pto file (useful for debugging, or further refinement)" << std::endl
-         << "  -a prefix align images, output as prefix_xxxx.tif" << std::endl
-         << "  -o output merge images to HDR, generate output.hdr" << std::endl
-         << " Modifiers" << std::endl
-         << "  -v        Verbose, print progress messages.  Repeat for higher verbosity" << std::endl
-         << "  -e        Assume input images are full frame fish eye (default: rectilinear)" << std::endl
-         << "  -t num    Remove all control points with an error higher than num pixels (default: 3)" << std::endl
-         << "  -f HFOV   approximate horizontal field of view of input images, use if EXIF info not complete" << std::endl
-         << "  -m        Optimize field of view for all images, except for first." << std::endl
-         << "             Useful for aligning focus stacks with slightly different magnification." << std::endl
-         << "  -d        Optimize radial distortion for all images, except for first." << std::endl
-         << "  -i        Optimize image center shift for all images, except for first." << std::endl
-         << "  -x        Optimize X coordinate of the camera position." << std::endl
-         << "  -y        Optimize Y coordinate of the camera position." << std::endl
-         << "  -z        Optimize Z coordinate of the camera position." << std::endl
-         << "             Useful for aligning more distorted images." << std::endl
-         << "  -S        Assume stereo images - allow horizontal shift of control points." << std::endl
-         << "  -A        Align stereo window - assumes -S." << std::endl
-         << "  -P        Align stereo window with pop-out effect - assumes -S." << std::endl
-         << "  -C        Auto crop the image to the area covered by all images." << std::endl
-         << "  -c num    number of control points (per grid) to create between adjacent images (default: 8)" << std::endl
-         << "  -l        Assume linear input files" << std::endl
-	 << "  -s scale  Scale down image by 2^scale (default: 1 [2x downsampling])" << std::endl
-	 << "  -g gsize  Break image into a rectangular grid (gsize x gsize) and attempt to find " << std::endl 
-	 << "             num control points in each section (default: 5 [5x5 grid] )" << std::endl
-         << "  -h        Display help (this text)" << std::endl
-         << std::endl;
+    std::cout << name << ": align overlapping images for HDR creation" << std::endl
+              << "align_image_stack version " << hugin_utils::GetHuginVersion() << std::endl
+              << std::endl
+              << "Usage: " << name << " [options] input files" << std::endl
+              << "Valid options are:" << std::endl
+              << " Modes of operation:" << std::endl
+              << "  -p file   Output .pto file (useful for debugging, or further refinement)" << std::endl
+              << "  -a prefix align images, output as prefix_xxxx.tif" << std::endl
+              << "  -o output merge images to HDR, generate output.hdr" << std::endl
+              << " Modifiers" << std::endl
+              << "  -v        Verbose, print progress messages.  Repeat for higher verbosity" << std::endl
+              << "  -e        Assume input images are full frame fish eye (default: rectilinear)" << std::endl
+              << "  -t num    Remove all control points with an error higher than num pixels" << std::endl
+              << "             (default: 3)" << std::endl
+              << "  --corr=num  Correlation threshold for identifing control points" << std::endl
+              << "               (default: 0.9)" << std::endl
+              << "  -f HFOV   approximate horizontal field of view of input images," << std::endl
+              << "             use if EXIF info not complete" << std::endl
+              << "  -m        Optimize field of view for all images, except for first." << std::endl
+              << "             Useful for aligning focus stacks with slightly" << std::endl
+              << "             different magnification." << std::endl
+              << "  -d        Optimize radial distortion for all images, except for first." << std::endl
+              << "  -i        Optimize image center shift for all images, except for first." << std::endl
+              << "  -x        Optimize X coordinate of the camera position." << std::endl
+              << "  -y        Optimize Y coordinate of the camera position." << std::endl
+              << "  -z        Optimize Z coordinate of the camera position." << std::endl
+              << "             Useful for aligning more distorted images." << std::endl
+              << "  -S        Assume stereo images - allow horizontal shift of control points." << std::endl
+              << "  -A        Align stereo window - assumes -S." << std::endl
+              << "  -P        Align stereo window with pop-out effect - assumes -S." << std::endl
+              << "  -C        Auto crop the image to the area covered by all images." << std::endl
+              << "  -c num    number of control points (per grid) to create" << std::endl
+              << "             between adjacent images (default: 8)" << std::endl
+              << "  -l        Assume linear input files" << std::endl
+              << "  -s scale  Scale down image by 2^scale (default: 1 [2x downsampling])" << std::endl
+              << "  -g gsize  Break image into a rectangular grid (gsize x gsize) and attempt" << std::endl
+              << "             to find num control points in each section" << std::endl
+              << "             (default: 5 [5x5 grid] )" << std::endl
+              << "  --distortion Try to load distortion information from lens database" << std::endl
+              << "  --use-given-order  Use the image order as given from command line" << std::endl
+              << "                     (By default images will be sorted by exposure values.)" << std::endl
+              << "  --align-to-first   Align all images to the first one. By default" << std::endl
+              << "                     align_image_stack matches all image pairs" << std::endl
+              << "                     consecutive." << std::endl
+              << "                     This implies also the --use-given-order option" << std::endl
+              << "  --dont-remap-ref   Don't output the remapped reference image" << std::endl
+              << "  --gpu     Use GPU for remapping" << std::endl
+              << "  -h        Display help (this text)" << std::endl
+              << std::endl;
 }
 
+typedef std::multimap<double, vigra::Diff2D> MapPoints;
+static hugin_omp::Lock lock;
 
-#if 0
-template <class VALUETYPE>
-class InterestPointSelector
+namespace detail
 {
-public:
-
-        /** the functor's argument type
-        */
-    typedef VALUETYPE argument_type;
-
-        /** the functor's result type
-        */
-    typedef VALUETYPE result_type;
-
-        /** \deprecated use argument_type
-        */
-    typedef VALUETYPE value_type;
-
-
-    InterestPointSelector(int nrPoints)
+    template <class ImageType>
+    vigra_ext::CorrelationResult FineTunePoint(const ImageType &leftImg, const vigra::Diff2D templPos, const int templSize,
+                                               const ImageType &rightImg, const vigra::Diff2D searchPos, const int searchWidth, vigra::VigraTrueType)
     {
-        minResponse = 0;
-        nPoints = nrPoints;
-    }
+        return vigra_ext::PointFineTune(leftImg, leftImg.accessor(),
+                                        templPos, templSize,
+                                        rightImg, rightImg.accessor(),
+                                        searchPos, searchWidth);
+    };
 
-    void operator()(argument_type const & resp)
+    template <class ImageType>
+    vigra_ext::CorrelationResult FineTunePoint(const ImageType &leftImg, const vigra::Diff2D templPos, const int templSize,
+                                               const ImageType &rightImg, const vigra::Diff2D searchPos, const int searchWidth, vigra::VigraFalseType)
     {
-        //double resp = leftCornerResponse(x,y);
-	if (resp > minResponse) {
-	    // add to point map
-	    points.insert(make_pair(resp,Diff2D(x,y)));
-	    // if we have reached the maximum
-	    // number of points, increase the threshold, to avoid
-	    // growing the points map too much.
-	    // extract more than nPoints, because some might be bad
-	    // and cannot be matched with the other image.
-	    if (points.size() > 5*nPoints) {
-		// remove the point with the lowest corner response.
-		leftCorners(points.begin()->second.x,points.begin()->second.y)=0;
-		points.erase(points.begin());
-		// use new threshold for next selection.
-		minResponse = points.begin()->first;
-	    }
-	}
-    }
-
-    argument_type minResponse;
-    std::multimap<argument_type, vigra::Diff2D> points;
-    int nPoints;
+        return vigra_ext::PointFineTune(leftImg,
+                                        vigra::RGBToGrayAccessor<typename ImageType::value_type>(),
+                                        templPos, templSize,
+                                        rightImg, vigra::RGBToGrayAccessor<typename ImageType::value_type>(),
+                                        searchPos, searchWidth);
+    };
 }
+template <class ImageType>
+void FineTuneInterestPoints(HuginBase::Panorama &pano,
+                            int img1, const ImageType &leftImg, const ImageType &leftImgOrig,
+                            int img2, const ImageType &rightImg, const ImageType &rightImgOrig,
+                            const MapPoints &points, unsigned nPoints, int pyrLevel, int templWidth, int sWidth, double scaleFactor, double corrThresh, bool stereo)
+{
+    typedef typename ImageType::value_type ImageValueType;
+    typedef typename vigra::NumericTraits<ImageValueType>::isScalar is_scalar;
 
-#endif
+    unsigned nGood = 0;
+    // loop over all points, starting with the highest corner score
+    for (MapPoints::const_reverse_iterator it = points.rbegin(); it != points.rend(); ++it)
+    {
+        if (nGood >= nPoints)
+        {
+            // we have enough points, stop
+            break;
+        }
+
+        vigra_ext::CorrelationResult res = detail::FineTunePoint(leftImg, it->second, templWidth,
+                                                                 rightImg, it->second, sWidth, is_scalar());
+        if (g_verbose > 2)
+        {
+            std::ostringstream buf;
+            buf << "I :" << (*it).second.x * scaleFactor << "," << (*it).second.y * scaleFactor << " -> "
+                << res.maxpos.x * scaleFactor << "," << res.maxpos.y * scaleFactor << ":  corr coeff: " << res.maxi
+                << " curv:" << res.curv.x << " " << res.curv.y << std::endl;
+            std::cout << buf.str();
+        }
+        if (res.maxi < corrThresh)
+        {
+            DEBUG_DEBUG("low correlation: " << res.maxi << " curv: " << res.curv);
+            continue;
+        }
+
+        if (pyrLevel > 0)
+        {
+            res = detail::FineTunePoint(leftImgOrig, vigra::Diff2D((*it).second.x * scaleFactor, (*it).second.y * scaleFactor),
+                                        templWidth, rightImgOrig, vigra::Diff2D(res.maxpos.x * scaleFactor, res.maxpos.y * scaleFactor),
+                                        scaleFactor, is_scalar());
+
+            if (g_verbose > 2)
+            {
+                std::ostringstream buf;
+                buf << "II>" << (*it).second.x * scaleFactor << "," << (*it).second.y * scaleFactor << " -> "
+                    << res.maxpos.x << "," << res.maxpos.y << ":  corr coeff: " << res.maxi
+                    << " curv:" << res.curv.x << " " << res.curv.y << std::endl;
+                std::cout << buf.str();
+            }
+            if (res.maxi < corrThresh)
+            {
+                DEBUG_DEBUG("low correlation in pass 2: " << res.maxi << " curv: " << res.curv);
+                continue;
+            }
+        }
+
+        nGood++;
+        // add control point
+        HuginBase::ControlPoint p(img1, (*it).second.x * scaleFactor,
+                                  (*it).second.y * scaleFactor,
+                                  img2, res.maxpos.x,
+                                  res.maxpos.y,
+                                  stereo ? HuginBase::ControlPoint::Y : HuginBase::ControlPoint::X_Y);
+        {
+            hugin_omp::ScopedLock sl(lock);
+            pano.addCtrlPoint(p);
+        };
+    }
+    if (g_verbose > 0)
+    {
+        std::ostringstream buf;
+        buf << "Number of good matches: " << nGood << ", bad matches: " << points.size() - nGood << std::endl;
+        std::cout << buf.str();
+    }
+};
+
+namespace detail
+{
+    template <class ImageType>
+    void FindInterestPointsPartial(const ImageType &image, const vigra::Rect2D &rect, double scale,
+                                   unsigned nPoints, std::multimap<double, vigra::Diff2D> &points, vigra::VigraTrueType)
+    {
+        vigra_ext::findInterestPointsPartial(vigra::srcImageRange(image), rect, scale, nPoints, points);
+    };
+
+    template <class ImageType>
+    void FindInterestPointsPartial(const ImageType &image, const vigra::Rect2D &rect, double scale,
+                                   unsigned nPoints, std::multimap<double, vigra::Diff2D> &points, vigra::VigraFalseType)
+    {
+        typedef typename ImageType::value_type ImageValueType;
+        vigra_ext::findInterestPointsPartial(vigra::srcImageRange(image, vigra::RGBToGrayAccessor<ImageValueType>()), rect, scale, nPoints, points);
+    };
+};
 
 template <class ImageType>
-void createCtrlPoints(Panorama & pano, int img1, const ImageType & leftImg, const ImageType & leftImgOrig, int img2, const ImageType & rightImg, const ImageType & rightImgOrig, int pyrLevel, double scale, unsigned nPoints, unsigned grid, bool stereo = false)
+void createCtrlPoints(HuginBase::Panorama &pano, int img1, const ImageType &leftImg, const ImageType &leftImgOrig, int img2, const ImageType &rightImg, const ImageType &rightImgOrig, int pyrLevel, double scale, unsigned nPoints, unsigned grid, double corrThresh = 0.9, bool stereo = false)
 {
-    typedef typename ImageType::value_type VT;
+    typedef typename ImageType::value_type ImageValueType;
+    typedef typename vigra::NumericTraits<ImageValueType>::isScalar is_scalar;
+
     //////////////////////////////////////////////////
     // find interesting corners using harris corner detector
-    typedef std::vector<std::multimap<double, vigra::Diff2D> > MapVector;
-
     if (stereo)
     {
         // add one vertical control point to keep the images aligned vertically
-        ControlPoint p(img1, 0, 0, img2, 0, 0, ControlPoint::X);
+        HuginBase::ControlPoint p(img1, 0, 0, img2, 0, 0, HuginBase::ControlPoint::X);
         pano.addCtrlPoint(p);
     }
-    std::vector<std::multimap<double, vigra::Diff2D> >points;
-    if (g_verbose > 0) {
-        std::cout << "Trying to find " << nPoints << " corners... ";
+
+    if (g_verbose > 0)
+    {
+        std::cout << "Trying to find " << nPoints << " corners... " << std::endl;
     }
 
-    vigra_ext::findInterestPointsOnGrid(srcImageRange(leftImg, GreenAccessor<VT>()), scale, 5*nPoints, grid, points);
+    vigra::Size2D size(leftImg.width(), leftImg.height());
+    std::vector<vigra::Rect2D> rects;
+    for (unsigned party = 0; party < grid; party++)
+    {
+        for (unsigned partx = 0; partx < grid; partx++)
+        {
+            // run corner detector only in current sub-region (saves a lot of memory for big images)
+            vigra::Rect2D rect(partx * size.x / grid, party * size.y / grid,
+                               (partx + 1) * size.x / grid, (party + 1) * size.y / grid);
+            rect &= vigra::Rect2D(size);
+            if (rect.width() > 0 && rect.height() > 0)
+            {
+                rects.push_back(rect);
+            };
+        };
+    };
+
+    const double scaleFactor = 1 << pyrLevel;
+    const long templWidth = 20;
+    const long sWidth = 100;
+
+#pragma omp parallel for schedule(dynamic)
+    for (int i = 0; i < rects.size(); ++i)
+    {
+        MapPoints points;
+        vigra::Rect2D rect(rects[i]);
+        detail::FindInterestPointsPartial(leftImg, rect, scale, 5 * nPoints, points, is_scalar());
+        FineTuneInterestPoints(pano, img1, leftImg, leftImgOrig, img2, rightImg, rightImgOrig, points, nPoints, pyrLevel, templWidth, sWidth, scaleFactor, corrThresh, stereo);
+    };
 
     if (stereo)
     {
@@ -183,185 +290,141 @@ void createCtrlPoints(Panorama & pano, int img1, const ImageType & leftImg, cons
         // this is useful for better results - images are more distorted around edges
         // and also for stereoscopic window adjustment - it must be alligned according to
         // the nearest object which crosses the edge and these control points helps to find it.
-        std::multimap<double, vigra::Diff2D> up;
-        std::multimap<double, vigra::Diff2D> down;
-        std::multimap<double, vigra::Diff2D> left;
-        std::multimap<double, vigra::Diff2D> right;
+        MapPoints up;
+        MapPoints down;
+        MapPoints left;
+        MapPoints right;
         int xstep = leftImg.size().x / (nPoints + 1);
         int ystep = leftImg.size().y / (nPoints + 1);
-        for (int k = 6; k >= 0; --k) 
-            for (int j = 0; j < 2; ++j) 
-            	for (int i = 0; i < nPoints; ++i) { 
-                    up.insert(   std::make_pair(0, vigra::Diff2D(j * xstep / 2 + i * xstep ,    1 + k * 10)));
-                    down.insert( std::make_pair(0, vigra::Diff2D(j * xstep / 2 + i * xstep ,    leftImg.size().y - 2 - k * 10)));
-                    left.insert( std::make_pair(0, vigra::Diff2D(1 + k * 10,                    j * ystep / 2 + i * ystep)));
-                    right.insert(std::make_pair(0, vigra::Diff2D(leftImg.size().x - 2 - k * 10, j * ystep / 2 + i * ystep)));
-        }
-        points.push_back(up);
-        points.push_back(down);
-        points.push_back(left);
-        points.push_back(right);
-    }  
-
-    double scaleFactor = 1<<pyrLevel;
-
-    for (MapVector::iterator mit = points.begin(); mit != points.end(); ++mit) {
-
-        unsigned nGood = 0;
-        unsigned nBad = 0;
-        // loop over all points, starting with the highest corner score
-        for (multimap<double, vigra::Diff2D>::reverse_iterator it = (*mit).rbegin();
-             it != (*mit).rend();
-             ++it)
+        for (int k = 6; k >= 0; --k)
         {
-            if (nGood >= nPoints) {
-                // we have enough points, stop
-                break;
-            }
-
-            long templWidth = 20;
-            long sWidth = 100;
-            long sWidth2 = scaleFactor;
-            double corrThresh = 0.9;
-            //double curvThresh = 0.0;
-
-            vigra_ext::CorrelationResult res;
-            cout << "PointFineTune..." << endl;
-            res = vigra_ext::PointFineTune(leftImg,
-                                            (*it).second,
-                                            templWidth,
-                                            rightImg,
-                                            (*it).second,
-                                            sWidth
-                                            );
-            if (g_verbose > 2) {
-                cout << "I :" << (*it).second.x * scaleFactor << "," << (*it).second.y * scaleFactor << " -> "
-                        << res.maxpos.x * scaleFactor << "," << res.maxpos.y * scaleFactor << ":  corr coeff: " <<  res.maxi
-                        << " curv:" <<  res.curv.x << " " << res.curv.y << std::endl;
-            }
-            if (res.maxi < corrThresh )
+            for (int j = 0; j < 2; ++j)
             {
-                cout << "low correlation, bad point" << endl;
-                nBad++;
-                DEBUG_DEBUG("low correlation: " << res.maxi << " curv: " << res.curv);
-                continue;
-            }
-            
-            if (pyrLevel > 0)
-            {
-                cout << "pyrLevel > 0, point fine tune..." << endl;
-                res = vigra_ext::PointFineTune(leftImgOrig,
-                                            Diff2D((*it).second.x * scaleFactor, (*it).second.y * scaleFactor),
-                                            templWidth,
-                                            rightImgOrig,
-                                            Diff2D(res.maxpos.x * scaleFactor, res.maxpos.y * scaleFactor),
-                                            sWidth2
-                                            );
-
-                if (g_verbose > 2) {
-                    cout << "II>" << (*it).second.x * scaleFactor << "," << (*it).second.y * scaleFactor << " -> "
-                            << res.maxpos.x << "," << res.maxpos.y << ":  corr coeff: " <<  res.maxi
-                            << " curv:" <<  res.curv.x << " " << res.curv.y << std::endl;
-                }
-                if (res.maxi < corrThresh )
+                for (unsigned int i = 0; i < nPoints; ++i)
                 {
-                    nBad++;
-                    DEBUG_DEBUG("low correlation in pass 2: " << res.maxi << " curv: " << res.curv);
-                    continue;
-                }
+                    up.insert(std::make_pair(0, vigra::Diff2D(j * xstep / 2 + i * xstep, 1 + k * 10)));
+                    down.insert(std::make_pair(0, vigra::Diff2D(j * xstep / 2 + i * xstep, leftImg.size().y - 2 - k * 10)));
+                    left.insert(std::make_pair(0, vigra::Diff2D(1 + k * 10, j * ystep / 2 + i * ystep)));
+                    right.insert(std::make_pair(0, vigra::Diff2D(leftImg.size().x - 2 - k * 10, j * ystep / 2 + i * ystep)));
+                };
+            };
+        };
+// execute parallel
+#pragma omp parallel sections
+        {
+#pragma omp section
+            {
+                FineTuneInterestPoints(pano, img1, leftImg, leftImgOrig, img2, rightImg, rightImgOrig, up, nPoints, pyrLevel, templWidth, sWidth, corrThresh, scaleFactor, stereo);
             }
-            
-            nGood++;
-            cout << "adding control point" << endl;
-            // add control point
-            ControlPoint p(img1, (*it).second.x * scaleFactor,
-                            (*it).second.y * scaleFactor,
-                            img2, res.maxpos.x,
-                            res.maxpos.y,
-                            stereo ? ControlPoint::Y : ControlPoint::X_Y);
-            pano.addCtrlPoint(p);
-            
-        }
-        if (g_verbose > 0) {
-            cout << "Number of good matches: " << nGood << ", bad matches: " << nBad << std::endl;
+#pragma omp section
+            {
+                FineTuneInterestPoints(pano, img1, leftImg, leftImgOrig, img2, rightImg, rightImgOrig, down, nPoints, pyrLevel, templWidth, sWidth, corrThresh, scaleFactor, stereo);
+            }
+#pragma omp section
+            {
+                FineTuneInterestPoints(pano, img1, leftImg, leftImgOrig, img2, rightImg, rightImgOrig, left, nPoints, pyrLevel, templWidth, sWidth, corrThresh, scaleFactor, stereo);
+            }
+#pragma omp section
+            {
+                FineTuneInterestPoints(pano, img1, leftImg, leftImgOrig, img2, rightImg, rightImgOrig, right, nPoints, pyrLevel, templWidth, sWidth, corrThresh, scaleFactor, stereo);
+            }
         }
     }
 };
 
-void alignStereoWindow(Panorama & pano, bool pop_out)
+void alignStereoWindow(HuginBase::Panorama &pano, bool pop_out)
 {
-    CPVector cps = pano.getCtrlPoints();
-    std::vector<PTools::Transform *> transTable(pano.getNrOfImages());
+    HuginBase::CPVector cps = pano.getCtrlPoints();
+    std::vector<HuginBase::PTools::Transform *> transTable(pano.getNrOfImages());
 
-    std::vector<int> max_i(pano.getNrOfImages() - 1, -1); // index of a point with biggest shift
-    std::vector<int> max_i_b(pano.getNrOfImages() - 1, -1); // the same as above, only border points considered
-    std::vector<double> max_dif(pano.getNrOfImages() - 1, -1000000000); // value of the shift
+    std::vector<int> max_i(pano.getNrOfImages() - 1, -1);                 // index of a point with biggest shift
+    std::vector<int> max_i_b(pano.getNrOfImages() - 1, -1);               // the same as above, only border points considered
+    std::vector<double> max_dif(pano.getNrOfImages() - 1, -1000000000);   // value of the shift
     std::vector<double> max_dif_b(pano.getNrOfImages() - 1, -1000000000); // the same as above, only border points considered
 
-    for (int i=0; i < pano.getNrOfImages(); i++)
+    for (int i = 0; i < pano.getNrOfImages(); i++)
     {
-        transTable[i] = new PTools::Transform();
+        transTable[i] = new HuginBase::PTools::Transform();
         transTable[i]->createInvTransform(pano.getImage(i), pano.getOptions());
     }
 
     double rbs = 0.1; // relative border size
-    
-    for (int i=0; i < (int)cps.size(); i++) {
-        if (cps[i].mode == ControlPoint::X) {
+
+    for (int i = 0; i < (int)cps.size(); i++)
+    {
+        if (cps[i].mode == HuginBase::ControlPoint::X)
+        {
             if (max_i[cps[i].image1Nr] < 0) // first control point for given pair
+            {
                 max_i[cps[i].image1Nr] = i; // use it as a fallback in case on other points exist
+            }
             continue;
         }
-        
+
         vigra::Size2D size1 = pano.getImage(cps[i].image1Nr).getSize();
         vigra::Size2D size2 = pano.getImage(cps[i].image2Nr).getSize();
-        
+
         vigra::Rect2D rect1(size1);
         vigra::Rect2D rect2(size2);
-        
+
         rect1.addBorder(-size1.width() * rbs, -size1.height() * rbs);
         rect2.addBorder(-size2.width() * rbs, -size2.height() * rbs);
-        
 
-        double xt1, yt1, xt2, yt2; 
-        if(!transTable[cps[i].image1Nr]->transformImgCoord(xt1, yt1, cps[i].x1, cps[i].y1)) continue;        
-        if(!transTable[cps[i].image2Nr]->transformImgCoord(xt2, yt2, cps[i].x2, cps[i].y2)) continue;        
+        double xt1, yt1, xt2, yt2;
+        if (!transTable[cps[i].image1Nr]->transformImgCoord(xt1, yt1, cps[i].x1, cps[i].y1))
+        {
+            continue;
+        }
+        if (!transTable[cps[i].image2Nr]->transformImgCoord(xt2, yt2, cps[i].x2, cps[i].y2))
+        {
+            continue;
+        }
 
         double dif = xt2 - xt1;
-        if (dif > max_dif[cps[i].image1Nr]) {
+        if (dif > max_dif[cps[i].image1Nr])
+        {
             max_dif[cps[i].image1Nr] = dif;
             max_i[cps[i].image1Nr] = i;
         }
 
-        if (!(rect1.contains(Point2D(cps[i].x1, cps[i].y1)) &&
-            rect2.contains(Point2D(cps[i].x2, cps[i].y2)))) {
+        if (!(rect1.contains(vigra::Point2D(cps[i].x1, cps[i].y1)) &&
+              rect2.contains(vigra::Point2D(cps[i].x2, cps[i].y2))))
+        {
             // the same for border points only
-            if (dif > max_dif_b[cps[i].image1Nr]) {
+            if (dif > max_dif_b[cps[i].image1Nr])
+            {
                 max_dif_b[cps[i].image1Nr] = dif;
                 max_i_b[cps[i].image1Nr] = i;
             }
         }
     }
 
-    for (int i=0; i < pano.getNrOfImages(); i++)
+    for (int i = 0; i < pano.getNrOfImages(); i++)
     {
         delete transTable[i];
     }
-    
-    for (int i=0; i < (int)max_i.size(); i++) {
+
+    for (int i = 0; i < (int)max_i.size(); i++)
+    {
         if (pop_out && (max_i_b[i] >= 0)) // check points at border
-            cps[max_i_b[i]].mode = ControlPoint::X_Y;
-        else if (max_i[i] >= 0) // no points at border - use any point
-            cps[max_i[i]].mode = ControlPoint::X_Y;
-        else {
-            //no points at all - should not happen
+        {
+            cps[max_i_b[i]].mode = HuginBase::ControlPoint::X_Y;
         }
-        
+        else if (max_i[i] >= 0) // no points at border - use any point
+        {
+            cps[max_i[i]].mode = HuginBase::ControlPoint::X_Y;
+        }
+        else
+        {
+            // no points at all - should not happen
+        }
     }
 
-    CPVector newCPs;
-    for (int i=0; i < (int)cps.size(); i++) {
-        if (cps[i].mode != ControlPoint::X) { // remove the vertical control lines, X_Y points replaces them
+    HuginBase::CPVector newCPs;
+    for (int i = 0; i < (int)cps.size(); i++)
+    {
+        if (cps[i].mode != HuginBase::ControlPoint::X) // remove the vertical control lines, X_Y points replaces them
+        {
             newCPs.push_back(cps[i]);
         }
     }
@@ -369,22 +432,24 @@ void alignStereoWindow(Panorama & pano, bool pop_out)
     pano.setCtrlPoints(newCPs);
 }
 
-void autoCrop(Panorama & pano)
+void autoCrop(HuginBase::Panorama &pano)
 {
-    CalculateOptimalROI cropPano(pano, true);
+    AppBase::DummyProgressDisplay dummy;
+    HuginBase::CalculateOptimalROI cropPano(pano, &dummy, true);
     cropPano.run();
-        
-    vigra::Rect2D roi=cropPano.getResultOptimalROI();
-    //set the ROI - fail if the right/bottom is zero, meaning all zero
-    if(roi.right() != 0 && roi.bottom() != 0)
+
+    vigra::Rect2D roi = cropPano.getResultOptimalROI();
+    // set the ROI - fail if the right/bottom is zero, meaning all zero
+    if (!roi.isEmpty())
     {
-        PanoramaOptions opt = pano.getOptions();
+        HuginBase::PanoramaOptions opt = pano.getOptions();
         opt.setROI(roi);
         pano.setOptions(opt);
-        cout << "Set crop size to " << roi.left() << "," << roi.top() << "," << roi.right() << "," << roi.bottom() << endl;
+        std::cout << "Set crop size to " << roi.left() << "," << roi.top() << "," << roi.right() << "," << roi.bottom() << std::endl;
     }
-    else {
-        cout << "Could not find best crop rectangle for image" << endl;
+    else
+    {
+        std::cout << "Could not find best crop rectangle for image" << std::endl;
     };
 }
 
@@ -393,11 +458,12 @@ struct Parameters
     Parameters()
     {
         cpErrorThreshold = 3;
+        corrThresh = 0.9;
         nPoints = 8;
         grid = 5;
         hfov = 0;
         pyrLevel = 1;
-        linear = false;   // Assume linear input files if true
+        linear = false; // Assume linear input files if true
         optHFOV = false;
         optDistortion = false;
         optCenter = false;
@@ -409,11 +475,17 @@ struct Parameters
         pop_out = false;
         crop = false;
         fisheye = false;
+        gpu = false;
+        loadDistortion = false;
+        sortImagesByEv = true;
+        alignToFirst = false;
+        dontRemapRef = false;
     }
 
     double cpErrorThreshold;
+    double corrThresh;
     int nPoints;
-    int grid;		// Partition images into grid x grid subregions, each with npoints
+    int grid; // Partition images into grid x grid subregions, each with npoints
     double hfov;
     bool linear;
     bool optHFOV;
@@ -427,203 +499,361 @@ struct Parameters
     bool stereo_window;
     bool pop_out;
     bool crop;
+    bool gpu;
+    bool loadDistortion;
+    bool sortImagesByEv;
+    bool alignToFirst;
+    bool dontRemapRef;
     int pyrLevel;
     std::string alignedPrefix;
     std::string ptoFile;
     std::string hdrFile;
-    string basename;
+    std::string basename;
+};
+
+// dummy panotools progress functions
+static int ptProgress(int command, char *argument)
+{
+    return 1;
+}
+static int ptinfoDlg(int command, char *argument)
+{
+    return 1;
+}
+
+struct SortImageVectorEV
+{
+public:
+    explicit SortImageVectorEV(const HuginBase::Panorama *pano) : m_pano(pano){};
+    bool operator()(const unsigned int i, const unsigned int j)
+    {
+        return m_pano->getImage(i).getExposureValue() > m_pano->getImage(j).getExposureValue();
+    };
+
+private:
+    const HuginBase::Panorama *m_pano;
 };
 
 template <class PixelType>
 int main2(std::vector<std::string> files, Parameters param)
 {
     typedef vigra::BasicImage<PixelType> ImageType;
-    try {
-        // load first image
-        vigra::ImageImportInfo firstImgInfo(files[0].c_str());
-
-        // original size
-        ImageType * leftImgOrig = new ImageType(firstImgInfo.size());
-        // rescale image
-        ImageType * leftImg = new ImageType();
-        {
-            if(firstImgInfo.numExtraBands() == 1) {
-                vigra::BImage alpha(firstImgInfo.size());
-                vigra::importImageAlpha(firstImgInfo, destImage(*leftImgOrig), destImage(alpha));
-            } else if (firstImgInfo.numExtraBands() == 0) {
-                vigra::importImage(firstImgInfo, destImage(*leftImgOrig));
-            } else {
-                vigra_fail("Images with multiple extra (alpha) channels not supported");
-            }
-            reduceNTimes(*leftImgOrig, *leftImg, param.pyrLevel);
-        }
-
-
-        Panorama pano;
-        Lens l;
+    try
+    {
+        HuginBase::Panorama pano;
+        HuginBase::Lens l;
 
         // add the first image.to the panorama object
-        // default settings
-        double focalLength = 50;
-        double cropFactor = 0;
-        
-        SrcPanoImage srcImg;
+        HuginBase::SrcPanoImage srcImg;
         srcImg.setFilename(files[0]);
-        
-        if (param.fisheye) {
-            srcImg.setProjection(SrcPanoImage::FULL_FRAME_FISHEYE);
+
+        if (param.fisheye)
+        {
+            srcImg.setProjection(HuginBase::SrcPanoImage::FULL_FRAME_FISHEYE);
         }
-        srcImg.readEXIF(focalLength, cropFactor, true, true);
+        srcImg.readEXIF();
+        srcImg.applyEXIFValues();
+        // for maximum and minimum exposure value of all images
+        double maxEv = 0;
+        double minEv = 0;
+        if (param.sortImagesByEv)
+        {
+            if (fabs(srcImg.getExposureValue()) < 1E-6)
+            {
+                // no exposure values found in file, don't sort images
+                param.sortImagesByEv = false;
+            }
+            else
+            {
+                maxEv = srcImg.getExposureValue();
+                minEv = srcImg.getExposureValue();
+            };
+        };
         // disable autorotate
         srcImg.setRoll(0);
-        if (srcImg.getSize().x == 0 || srcImg.getSize().y == 0) {
-            cerr << "Could not decode image: " << files[0] << "Unsupported image file format";
+        if (srcImg.getSize().x == 0 || srcImg.getSize().y == 0)
+        {
+            std::cerr << "Could not decode image: " << files[0] << "Unsupported image file format" << std::endl;
             return 1;
         }
 
+        if (param.loadDistortion)
+        {
+            if (srcImg.readDistortionFromDB())
+            {
+                std::cout << "\tRead distortion data from lens database." << std::endl;
+            }
+            else
+            {
+                std::cout << "\tNo valid distortion data found in lens database." << std::endl;
+            }
+        }
+
         // use hfov specified by user.
-        if (param.hfov > 0) {
+        if (param.hfov > 0)
+        {
             srcImg.setHFOV(param.hfov);
-        } else if (cropFactor == 0) {
+        }
+        else if (srcImg.getCropFactor() == 0)
+        {
             // could not read HFOV, assuming default: 50
             srcImg.setHFOV(50);
         }
-        
-        if (param.linear) {
-            srcImg.setResponseType(SrcPanoImage::RESPONSE_LINEAR);
-            if (g_verbose>0) {
-                cout << "Using linear response" << std::endl;
+
+        if (param.linear)
+        {
+            srcImg.setResponseType(HuginBase::SrcPanoImage::RESPONSE_LINEAR);
+            if (g_verbose > 0)
+            {
+                std::cout << "Using linear response" << std::endl;
             }
         }
-        
-        pano.addImage(srcImg);
-        
-        // setup output to be exactly similar to input image
-        PanoramaOptions opts;
 
-        if (param.fisheye) {
-            opts.setProjection(PanoramaOptions::FULL_FRAME_FISHEYE);
-        } else {
-            opts.setProjection(PanoramaOptions::RECTILINEAR);
+        pano.addImage(srcImg);
+
+        // setup output to be exactly similar to input image
+        HuginBase::PanoramaOptions opts;
+
+        if (param.fisheye)
+        {
+            opts.setProjection(HuginBase::PanoramaOptions::FULL_FRAME_FISHEYE);
+        }
+        else
+        {
+            opts.setProjection(HuginBase::PanoramaOptions::RECTILINEAR);
         }
         opts.setHFOV(srcImg.getHFOV(), false);
-
-        if (srcImg.getRoll() == 0.0 || srcImg.getRoll() == 180.0) {
-            opts.setWidth(srcImg.getSize().x, false);
-            opts.setHeight(srcImg.getSize().y);
-        } else {
-            opts.setWidth(srcImg.getSize().y, false);
-            opts.setHeight(srcImg.getSize().x);
-        }
-            // output to tiff format
-        opts.outputFormat = PanoramaOptions::TIFF_m;
+        opts.setWidth(srcImg.getSize().x, false);
+        opts.setHeight(srcImg.getSize().y);
+        // output to tiff format
+        opts.outputFormat = HuginBase::PanoramaOptions::TIFF_m;
         opts.tiff_saveROI = false;
         // m estimator, to be more robust against points on moving objects
         opts.huberSigma = 2;
+        // save also exposure value of first image
+        opts.outputExposureValue = srcImg.getExposureValue();
         pano.setOptions(opts);
 
         // variables that should be optimized
         // optimize nothing in the first image
-        OptimizeVector optvars(1);
+        HuginBase::OptimizeVector optvars(1);
+        std::vector<unsigned int> images;
+        images.push_back(0);
 
-        ImageType * rightImg = new ImageType(leftImg->size());
-        ImageType * rightImgOrig = new ImageType(leftImgOrig->size());
-        StandardImageVariableGroups variable_groups(pano);
+        HuginBase::StandardImageVariableGroups variable_groups(pano);
 
-        // loop to add images and control points between them.
-        for (int i = 1; i < (int) files.size(); i++) {
-            if (g_verbose > 0) {
-                cout << "Creating control points between " << files[i-1] << " and " << files[i] << std::endl;
-            }
+        // loop to add images.
+        for (int i = 1; i < (int)files.size(); i++)
+        {
             // add next image.
             srcImg.setFilename(files[i]);
-            srcImg.readEXIF(focalLength, cropFactor, true, true);
-            if (srcImg.getSize().x == 0 || srcImg.getSize().y == 0) {
-                cerr << "Could not decode image: " << files[i] << "Unsupported image file format";
+            // reset size to force new detection of image size
+            srcImg.setSize(vigra::Size2D());
+            srcImg.readEXIF();
+            srcImg.applyEXIFValues();
+            if (srcImg.getSize().x == 0 || srcImg.getSize().y == 0)
+            {
+                std::cerr << "Could not decode image: " << files[i] << "Unsupported image file format" << std::endl;
                 return 1;
             }
-            if (param.hfov > 0) {
+            if (pano.getImage(0).getSize() != srcImg.getSize())
+            {
+                std::cerr << "Images have different sizes." << std::endl
+                          << files[0] << " has " << pano.getImage(0).getSize() << " pixel, while " << std::endl
+                          << files[i] << " has " << srcImg.getSize() << " pixel." << std::endl
+                          << "This is not supported. Align_image_stack works only with images of the same size." << std::endl;
+                return 1;
+            };
+            if (param.sortImagesByEv)
+            {
+                const double exposureValue = srcImg.getExposureValue();
+                if (exposureValue > maxEv)
+                {
+                    maxEv = exposureValue;
+                };
+                if (exposureValue < minEv)
+                {
+                    minEv = exposureValue;
+                };
+            };
+
+            if (param.loadDistortion)
+            {
+                if (srcImg.readDistortionFromDB())
+                {
+                    std::cout << "\tRead distortion data from lens database." << std::endl;
+                }
+                else
+                {
+                    std::cout << "\tNo valid distortion data found in lens database." << std::endl;
+                }
+            }
+
+            if (param.hfov > 0)
+            {
                 srcImg.setHFOV(param.hfov);
-            } else if (cropFactor == 0) {
+            }
+            else if (srcImg.getCropFactor() == 0)
+            {
                 // could not read HFOV, assuming default: 50
                 srcImg.setHFOV(50);
             }
-            
+
             int imgNr = pano.addImage(srcImg);
             variable_groups.update();
             // each image shares the same lens.
             variable_groups.getLenses().switchParts(imgNr, 0);
             // unlink HFOV?
-            if (param.optHFOV) {
+            if (param.optHFOV)
+            {
                 pano.unlinkImageVariableHFOV(0);
             }
-            if (param.optDistortion) {
+            if (param.optDistortion)
+            {
                 pano.unlinkImageVariableRadialDistortion(0);
             }
-            if (param.optCenter) {
+            if (param.optCenter)
+            {
                 pano.unlinkImageVariableRadialDistortionCenterShift(0);
             }
-            
             // All images are in the same stack: Link the stack variable.
-            pano.linkImageVariableStack(imgNr, 0);
-            
-            // load the actual image data of the next image
-            vigra::ImageImportInfo nextImgInfo(files[i].c_str());
-            assert(nextImgInfo.size() == firstImgInfo.size());
-            {
-                if (nextImgInfo.numExtraBands() == 1) {
-                    vigra::BImage alpha(nextImgInfo.size());
-                    vigra::importImageAlpha(nextImgInfo, destImage(*rightImgOrig), destImage(alpha));
-                } else if (nextImgInfo.numExtraBands() == 0) {
-                    vigra::importImage(nextImgInfo, destImage(*rightImgOrig));
-                } else {
-                    vigra_fail("Images with multiple extra (alpha) channels not supported");
-                }
-                reduceNTimes(*rightImgOrig, *rightImg, param.pyrLevel);
-            }
-
-            // add control points.
-            // work on smaller images
-            // TODO: or use a fast interest point operator.
-            cout << "create ctrl points" << endl;
-            createCtrlPoints(pano, i-1, *leftImg, *leftImgOrig, i, *rightImg, *rightImgOrig, param.pyrLevel, 2, param.nPoints, param.grid, param.stereo);
-            cout << "done create ctrl points" << endl;
-
-            // swap images;
-            delete leftImg;
-            delete leftImgOrig;
-            leftImg = rightImg;
-            leftImgOrig = rightImgOrig;
-            rightImg = new ImageType(leftImg->size());
-            rightImgOrig = new ImageType(leftImgOrig->size());
-
+            pano.linkImageVariableStack(0, imgNr);
+            images.push_back(i);
             // optimize yaw, roll, pitch
             std::set<std::string> vars;
             vars.insert("y");
             vars.insert("p");
             vars.insert("r");
-            if (param.optHFOV) {
+            if (param.optHFOV)
+            {
                 vars.insert("v");
             }
-            if (param.optDistortion) {
+            if (param.optDistortion)
+            {
                 vars.insert("a");
                 vars.insert("b");
                 vars.insert("c");
             }
-            if (param.optCenter) {
+            if (param.optCenter)
+            {
                 vars.insert("d");
                 vars.insert("e");
             }
-            if (param.optX) {
+            if (param.optX)
+            {
                 vars.insert("TrX");
             }
-            if (param.optY) {
+            if (param.optY)
+            {
                 vars.insert("TrY");
             }
-            if (param.optZ) {
+            if (param.optZ)
+            {
                 vars.insert("TrZ");
             }
             optvars.push_back(vars);
+        };
+
+        // sort now all images by exposure value
+        if (param.sortImagesByEv)
+        {
+            // if exposure value spread is too small disable sorting
+            // this can happen e.g. for focus stacks
+            if (maxEv - minEv > 0.05)
+            {
+                std::sort(images.begin(), images.end(), SortImageVectorEV(&pano));
+            }
+            else
+            {
+                param.sortImagesByEv = false;
+                std::cout << "WARNING: Spread of exposure values is very small." << std::endl
+                          << "         Disabling sorting images by exposure value." << std::endl
+                          << std::endl;
+            };
+        };
+
+        // load first image
+        vigra::ImageImportInfo firstImgInfo(pano.getSrcImage(images[0]).getFilename().c_str());
+
+        // original size
+        ImageType *leftImgOrig = new ImageType(firstImgInfo.size());
+        // rescale image
+        ImageType *leftImg = new ImageType();
+        {
+            if (firstImgInfo.numExtraBands() == 1)
+            {
+                vigra::BImage alpha(firstImgInfo.size());
+                vigra::importImageAlpha(firstImgInfo, destImage(*leftImgOrig), destImage(alpha));
+            }
+            else if (firstImgInfo.numExtraBands() == 0)
+            {
+                vigra::importImage(firstImgInfo, destImage(*leftImgOrig));
+            }
+            else
+            {
+                vigra_fail("Images with multiple extra (alpha) channels not supported");
+            }
+            vigra_ext::reduceNTimes(*leftImgOrig, *leftImg, param.pyrLevel);
+        }
+
+        ImageType *rightImg = new ImageType(leftImg->size());
+        ImageType *rightImgOrig = new ImageType(leftImgOrig->size());
+        // loop to add control points between them.
+        for (int i = 1; i < (int)images.size(); i++)
+        {
+            if (g_verbose > 0)
+            {
+                if (param.alignToFirst)
+                {
+                    std::cout << "Creating control points between " << pano.getSrcImage(images[0]).getFilename().c_str() << " and " << pano.getSrcImage(images[i]).getFilename().c_str() << std::endl;
+                }
+                else
+                {
+                    std::cout << "Creating control points between " << pano.getSrcImage(images[i - 1]).getFilename().c_str() << " and " << pano.getSrcImage(images[i]).getFilename().c_str() << std::endl;
+                };
+            }
+
+            // load the actual image data of the next image
+            vigra::ImageImportInfo nextImgInfo(pano.getSrcImage(images[i]).getFilename().c_str());
+            assert(nextImgInfo.size() == firstImgInfo.size());
+            {
+                if (nextImgInfo.numExtraBands() == 1)
+                {
+                    vigra::BImage alpha(nextImgInfo.size());
+                    vigra::importImageAlpha(nextImgInfo, destImage(*rightImgOrig), destImage(alpha));
+                }
+                else if (nextImgInfo.numExtraBands() == 0)
+                {
+                    vigra::importImage(nextImgInfo, destImage(*rightImgOrig));
+                }
+                else
+                {
+                    vigra_fail("Images with multiple extra (alpha) channels not supported");
+                }
+                vigra_ext::reduceNTimes(*rightImgOrig, *rightImg, param.pyrLevel);
+            }
+
+            // add control points.
+            // work on smaller images
+            // TODO: or use a fast interest point operator.
+            if (param.alignToFirst)
+            {
+                createCtrlPoints(pano, 0, *leftImg, *leftImgOrig, images[i], *rightImg, *rightImgOrig, param.pyrLevel, 2, param.nPoints, param.grid, param.corrThresh, param.stereo);
+                vigra::initImage(vigra::destImageRange(*rightImg), vigra::NumericTraits<PixelType>::zero());
+                vigra::initImage(vigra::destImageRange(*rightImgOrig), vigra::NumericTraits<PixelType>::zero());
+            }
+            else
+            {
+                createCtrlPoints(pano, images[i - 1], *leftImg, *leftImgOrig, images[i], *rightImg, *rightImgOrig, param.pyrLevel, 2, param.nPoints, param.grid, param.corrThresh, param.stereo);
+
+                // swap images;
+                delete leftImg;
+                delete leftImgOrig;
+                leftImg = rightImg;
+                leftImgOrig = rightImgOrig;
+                rightImg = new ImageType(leftImg->size());
+                rightImgOrig = new ImageType(leftImgOrig->size());
+            };
         }
         delete leftImg;
         delete rightImg;
@@ -632,95 +862,149 @@ int main2(std::vector<std::string> files, Parameters param)
 
         // optimize everything.
         pano.setOptimizeVector(optvars);
-        bool optimizeError = false;
-        optimizeError = (PTools::optimize(pano) > 0);
+        // disable optimizer progress messages if -v not given
+        if (g_verbose == 0)
+        {
+            PT_setProgressFcn(ptProgress);
+            PT_setInfoDlgFcn(ptinfoDlg);
+        };
+        bool optimizeError = (HuginBase::PTools::optimize(pano) > 0);
 
         // need to do some basic outlier pruning.
         // remove all points with error higher than a specified threshold
-        if (param.cpErrorThreshold > 0) {
-            CPVector cps = pano.getCtrlPoints();
-            CPVector newCPs;
-            for (int i=0; i < (int)cps.size(); i++) {
+        if (param.cpErrorThreshold > 0)
+        {
+            HuginBase::CPVector cps = pano.getCtrlPoints();
+            HuginBase::CPVector newCPs;
+            for (int i = 0; i < (int)cps.size(); i++)
+            {
                 if (cps[i].error < param.cpErrorThreshold ||
-                    cps[i].mode == ControlPoint::X) { // preserve the vertical control point for stereo alignment
+                    cps[i].mode == HuginBase::ControlPoint::X) // preserve the vertical control point for stereo alignment
+                {
                     newCPs.push_back(cps[i]);
                 }
             }
-            if (g_verbose > 0) {
-                cout << "Ctrl points before pruning: " << cps.size() << ", after: " << newCPs.size() << std::endl;
+            if (g_verbose > 0)
+            {
+                std::cout << "Ctrl points before pruning: " << cps.size() << ", after: " << newCPs.size() << std::endl;
             }
             pano.setCtrlPoints(newCPs);
-            if (param.stereo_window) alignStereoWindow(pano, param.pop_out);
+            if (param.stereo_window)
+            {
+                alignStereoWindow(pano, param.pop_out);
+            }
+            if (param.optHFOV)
+            {
+                // check that reference image contains cp, otherwise optimizing hfov
+                // goes haywire
+                if (pano.getCtrlPointsForImage(0).empty())
+                {
+                    std::cerr << std::endl
+                              << "After control points pruning reference images has no control" << std::endl
+                              << "points Optimizing field of view in this case results in undefined" << std::endl
+                              << "behaviour. Increase error distance (-t parameter), tweak cp" << std::endl
+                              << "detection parameters or don't optimize HFOV." << std::endl
+                              << std::endl
+                              << "Exiting..." << std::endl;
+                    return 1;
+                };
+            };
             // reoptimize
-            optimizeError = (PTools::optimize(pano) > 0) ;
+            optimizeError = (HuginBase::PTools::optimize(pano) > 0);
         }
-        
-        if (param.crop) autoCrop(pano);
 
-        UIntSet imgs = pano.getActiveImages();
+        if (param.crop)
+        {
+            autoCrop(pano);
+        }
+        // deactivate ref image if requested
+        if (param.dontRemapRef)
+        {
+            pano.activateImage(0, false);
+        };
 
-
+        HuginBase::UIntSet imgs = pano.getActiveImages();
         if (optimizeError)
         {
-            if (param.ptoFile.size() > 0) {
+            if (!param.ptoFile.empty())
+            {
                 std::ofstream script(param.ptoFile.c_str());
                 pano.printPanoramaScript(script, optvars, pano.getOptions(), imgs, false, "");
             }
-            cerr << "An error occured during optimization." << std::endl;
-            cerr << "Try adding \"-p debug.pto\" and checking output." << std::endl;
-            cerr << "Exiting..." << std::endl;
+            std::cerr << "An error occurred during optimization." << std::endl;
+            std::cerr << "Try adding \"-p debug.pto\" and checking output." << std::endl;
+            std::cerr << "Exiting..." << std::endl;
             return 1;
         }
 
-        if (param.hdrFile.size()) {
+        if (param.hdrFile.size())
+        {
             // TODO: photometric alignment (HDR, fixed white balance)
-            //utils::StreamProgressReporter progress(2.0);
-            //loadImgsAndExtractPoints(pano, nPoints, pyrLevel, randomPoints, progress, points);
-            //smartOptimizePhotometric
+            // utils::StreamProgressReporter progress(2.0);
+            // loadImgsAndExtractPoints(pano, nPoints, pyrLevel, randomPoints, progress, points);
+            // smartOptimizePhotometric
 
             // switch to HDR output mode
-            PanoramaOptions opts = pano.getOptions();
-            opts.outputFormat = PanoramaOptions::HDR;
+            HuginBase::PanoramaOptions opts = pano.getOptions();
+            opts.outputFormat = HuginBase::PanoramaOptions::HDR;
             opts.outputPixelType = "FLOAT";
-            opts.outputMode = PanoramaOptions::OUTPUT_HDR;
-            opts.outfile = param.hdrFile;
+            opts.outputMode = HuginBase::PanoramaOptions::OUTPUT_HDR;
             pano.setOptions(opts);
 
             // remap all images
-            StreamMultiProgressDisplay progress(cout);
-            stitchPanorama(pano, pano.getOptions(),
-                           progress, opts.outfile, imgs);
-        }
-        if (param.alignedPrefix.size()) {
-            // disable all exposure compensation stuff.
-            PanoramaOptions opts = pano.getOptions();
-            opts.outputExposureValue = 0;
-            opts.outputMode = PanoramaOptions::OUTPUT_LDR;
-            opts.outputFormat = PanoramaOptions::TIFF_m;
-            opts.outputPixelType = "";
-            opts.outfile = param.alignedPrefix;
-            pano.setOptions(opts);
-            for (unsigned i=0; i < pano.getNrOfImages(); i++) {
-                SrcPanoImage img = pano.getSrcImage(i);
-                img.setExposureValue(0);
-                pano.setSrcImage(i, img);
+            AppBase::ProgressDisplay *progress;
+            if (g_verbose > 0)
+            {
+                progress = new AppBase::StreamProgressDisplay(std::cout);
             }
+            else
+            {
+                progress = new AppBase::DummyProgressDisplay();
+            };
+            HuginBase::Nona::stitchPanorama(pano, pano.getOptions(),
+                                            progress, param.hdrFile, imgs);
+            std::cout << "Written HDR output to " << param.hdrFile << std::endl;
+            delete progress;
+        }
+        if (param.alignedPrefix.size())
+        {
+            // disable all exposure compensation stuff.
+            HuginBase::PanoramaOptions opts = pano.getOptions();
+            opts.outputMode = HuginBase::PanoramaOptions::OUTPUT_LDR;
+            opts.outputFormat = HuginBase::PanoramaOptions::TIFF_m;
+            opts.outputPixelType = "";
+            opts.remapUsingGPU = param.gpu;
+            pano.setOptions(opts);
             // remap all images
-            StreamMultiProgressDisplay progress(cout);
-            stitchPanorama(pano, pano.getOptions(),
-                           progress, opts.outfile, imgs);
-
+            AppBase::ProgressDisplay *progress;
+            if (g_verbose > 0)
+            {
+                progress = new AppBase::StreamProgressDisplay(std::cout);
+            }
+            else
+            {
+                progress = new AppBase::DummyProgressDisplay();
+            };
+            // pass option to ignore exposure to stitcher
+            HuginBase::Nona::AdvancedOptions advOpts;
+            HuginBase::Nona::SetAdvancedOption(advOpts, "ignoreExposure", true);
+            HuginBase::Nona::stitchPanorama(pano, pano.getOptions(),
+                                            progress, param.alignedPrefix, imgs, advOpts);
+            delete progress;
+            std::cout << "Written aligned images to files with prefix \"" << param.alignedPrefix << "\"" << std::endl;
         }
 
         // At this point we have panorama options set according to the output
-        if (param.ptoFile.size() > 0) {
+        if (!param.ptoFile.empty())
+        {
             std::ofstream script(param.ptoFile.c_str());
             pano.printPanoramaScript(script, optvars, pano.getOptions(), imgs, false, "");
+            std::cout << "Written project file " << param.ptoFile << std::endl;
         }
-
-
-    } catch (std::exception & e) {
-        cerr << "ERROR: caught exception: " << e.what() << std::endl;
+    }
+    catch (std::exception &e)
+    {
+        std::cerr << "ERROR: caught exception: " << e.what() << std::endl;
         return 1;
     }
     return 0;
@@ -729,48 +1013,72 @@ int main2(std::vector<std::string> files, Parameters param)
 int main(int argc, char *argv[])
 {
     // parse arguments
-    const char * optstring = "a:ef:g:hlmdiSAPCp:vo:s:t:c:xyz";
+    const char *optstring = "a:ef:g:hlmdiSAPCp:vo:s:t:c:xyz";
     int c;
-
-    opterr = 0;
 
     g_verbose = 0;
 
     Parameters param;
-//    // use to override exposure value on the command line?
-//    std::map<std::string, double> exposureValueMap;
-    while ((c = getopt (argc, argv, optstring)) != -1)
-        switch (c) {
+    enum
+    {
+        CORRTHRESH = 1000,
+        THREADS,
+        GPU,
+        LENSDB,
+        USEGIVENORDER,
+        ALIGNTOFIRST,
+        DONTREMAPREF,
+    };
+
+    static struct option longOptions[] =
+        {
+            {"corr", required_argument, NULL, CORRTHRESH},
+            {"verbose", no_argument, NULL, 'v'},
+            {"threads", required_argument, NULL, THREADS},
+            {"gpu", no_argument, NULL, GPU},
+            {"distortion", no_argument, NULL, LENSDB},
+            {"use-given-order", no_argument, NULL, USEGIVENORDER},
+            {"align-to-first", no_argument, NULL, ALIGNTOFIRST},
+            {"dont-remap-ref", no_argument, NULL, DONTREMAPREF},
+            {"help", no_argument, NULL, 'h'},
+            0};
+    while ((c = getopt_long(argc, argv, optstring, longOptions, nullptr)) != -1)
+    {
+        switch (c)
+        {
         case 'a':
             param.alignedPrefix = optarg;
             break;
         case 'c':
             param.nPoints = atoi(optarg);
-	    if (param.nPoints<1) {
-		cerr << "Invalid parameter: Number of points/grid (-c) must be at least 1" << std::endl;
-		return 1;
-	    }
+            if (param.nPoints < 1)
+            {
+                std::cerr << hugin_utils::stripPath(argv[0]) << ": Invalid parameter: Number of points/grid (-c) must be at least 1" << std::endl;
+                return 1;
+            }
             break;
         case 'e':
             param.fisheye = true;
             break;
         case 'f':
             param.hfov = atof(optarg);
-	    if (param.hfov<=0) {
-		cerr << "Invalid parameter: HFOV (-f) must be greater than 0" << std::endl;
-		return 1;
-	    }
+            if (param.hfov <= 0)
+            {
+                std::cerr << hugin_utils::stripPath(argv[0]) << ": Invalid parameter: HFOV (-f) must be greater than 0" << std::endl;
+                return 1;
+            }
             break;
-	case 'g':
-	    param.grid = atoi(optarg);
-	    if (param.grid <1 || param.grid>50) {
-		cerr << "Invalid parameter: number of grid cells (-g) should be between 1 and 50" << std::endl;
-		return 1;
-	    }
-	    break;
-	case 'l':
-	    param.linear = true;
-	    break;
+        case 'g':
+            param.grid = atoi(optarg);
+            if (param.grid < 1 || param.grid > 50)
+            {
+                std::cerr << hugin_utils::stripPath(argv[0]) << ": Invalid parameter: number of grid cells (-g) should be between 1 and 50" << std::endl;
+                return 1;
+            }
+            break;
+        case 'l':
+            param.linear = true;
+            break;
         case 'm':
             param.optHFOV = true;
             break;
@@ -806,10 +1114,11 @@ int main(int argc, char *argv[])
             break;
         case 't':
             param.cpErrorThreshold = atof(optarg);
-	    if (param.cpErrorThreshold <= 0) {
-		cerr << "Invalid parameter: control point error threshold (-t) must be greater than 0" << std::endl;
-		return 1;
-	    }
+            if (param.cpErrorThreshold <= 0)
+            {
+                std::cerr << hugin_utils::stripPath(argv[0]) << ": Invalid parameter: control point error threshold (-t) must be greater than 0" << std::endl;
+                return 1;
+            }
             break;
         case 'p':
             param.ptoFile = optarg;
@@ -821,65 +1130,155 @@ int main(int argc, char *argv[])
             g_verbose++;
             break;
         case 'h':
-            usage(argv[0]);
+            usage(hugin_utils::stripPath(argv[0]).c_str());
             return 0;
-	case 's':
-	    param.pyrLevel = atoi(optarg);
-	    if (param.pyrLevel<0 || param.pyrLevel >8) {
-		cerr << "Invalid parameter: scaling (-s) should be between 0 and 8" << std::endl;
-		return 1;
-	    }
-	    break;
-        default:
-            cerr << "Invalid parameter: " << optarg << std::endl;
-            usage(argv[0]);
+        case 's':
+            param.pyrLevel = atoi(optarg);
+            if (param.pyrLevel < 0 || param.pyrLevel > 8)
+            {
+                std::cerr << hugin_utils::stripPath(argv[0]) << ": Invalid parameter: scaling (-s) should be between 0 and 8" << std::endl;
+                return 1;
+            }
+            break;
+        case CORRTHRESH:
+            param.corrThresh = atof(optarg);
+            if (param.corrThresh <= 0 || param.corrThresh > 1.0)
+            {
+                std::cerr << hugin_utils::stripPath(argv[0]) << ": Invalid parameter: correlation should be between 0 and 1" << endl;
+                return 1;
+            };
+            break;
+        case THREADS:
+            std::cout << "WARNING: Switch --threads is deprecated. Set environment variable OMP_NUM_THREADS instead" << std::endl;
+            break;
+        case GPU:
+            param.gpu = true;
+            break;
+        case LENSDB:
+            param.loadDistortion = true;
+            break;
+        case USEGIVENORDER:
+            param.sortImagesByEv = false;
+            break;
+        case ALIGNTOFIRST:
+            param.alignToFirst = true;
+            param.sortImagesByEv = false;
+            break;
+        case DONTREMAPREF:
+            param.dontRemapRef = true;
+            break;
+        case ':':
+        case '?':
+            // missing argument or invalid switch
             return 1;
+            break;
+        default:
+            // this should not happen
+            abort();
         }
+    }
 
+    // use always given image order for stereo options
+    if (param.stereo)
+    {
+        param.sortImagesByEv = false;
+    };
     unsigned nFiles = argc - optind;
-    if (nFiles < 2) {
-        std::cerr << std::endl << "Error: at least two files need to be specified" << std::endl <<std::endl;
-        usage(argv[0]);
+    if (nFiles < 2)
+    {
+        std::cerr << hugin_utils::stripPath(argv[0]) << ": At least two files need to be specified" << std::endl;
         return 1;
     }
 
-    if (param.hdrFile.size() == 0 && param.ptoFile.size() == 0 && param.alignedPrefix.size() == 0) {
-        std::cerr << std::endl
-                  << "ERROR: Please specify at least one of the -p, -o or -a options." << std::endl
-                  << std::endl;
-        usage(argv[0]);
+    if (param.hdrFile.empty() && param.ptoFile.empty() && param.alignedPrefix.empty())
+    {
+        std::cerr << hugin_utils::stripPath(argv[0]) << ": Please specify at least one of the -p, -o or -a options." << std::endl;
         return 1;
     }
 
     // extract file names
     std::vector<std::string> files;
-    for (size_t i=0; i < nFiles; i++)
-        files.push_back(argv[optind+i]);
-
-    // TODO: sort images in pano by exposure
+    for (size_t i = 0; i < nFiles; i++)
+    {
+        files.push_back(argv[optind + i]);
+    }
 
     std::string pixelType;
 
-    try {
+    bool grayscale = false;
+    int returnValue = 1;
+    try
+    {
         vigra::ImageImportInfo firstImgInfo(files[0].c_str());
         pixelType = firstImgInfo.getPixelType();
-    } catch (std::exception & e) {
-        cerr << "ERROR: caught exception: " << e.what() << std::endl;
+        if (firstImgInfo.numExtraBands() > 1)
+        {
+            std::cerr << "ERROR: images with several alpha channels are not supported." << std::endl;
+            return 1;
+        };
+        grayscale = firstImgInfo.isGrayscale();
+    }
+    catch (std::exception &e)
+    {
+        std::cerr << "ERROR: caught exception: " << e.what() << std::endl;
         return 1;
     }
 
-    if (pixelType == "UINT8") {
-        return main2<RGBValue<UInt8> >(files, param);
-    } else if (pixelType == "INT16") {
-        return main2<RGBValue<Int16> >(files, param);
-    } else if (pixelType == "UINT16") {
-        return main2<RGBValue<UInt16> >(files, param);
-    } else if (pixelType == "FLOAT") {
-        return main2<RGBValue<float> >(files, param);
-    } else {
-        cerr << " ERROR: unsupported pixel type: " << pixelType << std::endl;
-        return 1;
+    if (param.gpu)
+    {
+        param.gpu = hugin_utils::initGPU(&argc, argv);
+    };
+    if (grayscale)
+    {
+        if (pixelType == "UINT8")
+        {
+            returnValue = main2<vigra::UInt8>(files, param);
+        }
+        else if (pixelType == "INT16")
+        {
+            returnValue = main2<vigra::Int16>(files, param);
+        }
+        else if (pixelType == "UINT16")
+        {
+            returnValue = main2<vigra::UInt16>(files, param);
+        }
+        else if (pixelType == "FLOAT")
+        {
+            returnValue = main2<float>(files, param);
+        }
+        else
+        {
+            std::cerr << " ERROR: unsupported pixel type: " << pixelType << std::endl;
+        }
     }
+    else
+    {
+        if (pixelType == "UINT8")
+        {
+            returnValue = main2<vigra::RGBValue<vigra::UInt8>>(files, param);
+        }
+        else if (pixelType == "INT16")
+        {
+            returnValue = main2<vigra::RGBValue<vigra::Int16>>(files, param);
+        }
+        else if (pixelType == "UINT16")
+        {
+            returnValue = main2<vigra::RGBValue<vigra::UInt16>>(files, param);
+        }
+        else if (pixelType == "FLOAT")
+        {
+            returnValue = main2<vigra::RGBValue<float>>(files, param);
+        }
+        else
+        {
+            std::cerr << " ERROR: unsupported pixel type: " << pixelType << std::endl;
+        }
+    };
 
-    return 0;
+    if (param.gpu)
+    {
+        hugin_utils::wrapupGPU();
+    };
+    HuginBase::LensDB::LensDB::Clean();
+    return returnValue;
 }

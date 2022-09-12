@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -41,10 +41,7 @@ const ConstImageVariableGroup::ImageVariableEnum lens_variables_array[]
                ImageVariableGroup::IVE_HFOV,
                ImageVariableGroup::IVE_ResponseType,
                ImageVariableGroup::IVE_EMoRParams,
-               ImageVariableGroup::IVE_ExposureValue,
                ImageVariableGroup::IVE_Gamma,
-               ImageVariableGroup::IVE_WhiteBalanceRed,
-               ImageVariableGroup::IVE_WhiteBalanceBlue,
                ImageVariableGroup::IVE_RadialDistortion,
                ImageVariableGroup::IVE_RadialDistortionRed,
                ImageVariableGroup::IVE_RadialDistortionBlue,
@@ -62,7 +59,7 @@ const ConstImageVariableGroup::ImageVariableEnum lens_variables_array[]
  */
 const std::set<ConstImageVariableGroup::ImageVariableEnum> lens_variables_set =
     std::set<ConstImageVariableGroup::ImageVariableEnum>(lens_variables_array,
-                                                         lens_variables_array + 18);
+                                                         lens_variables_array + 15);
 
 
 /** The image variables that are specific to stack. These are by default linked
@@ -136,7 +133,7 @@ Lens ConstStandardImageVariableGroups::getLensForImage(std::size_t image_number)
     result.setProjection((Lens::LensProjectionFormat) image.getProjection());
     result.setImageSize(image.getSize());
     // set the sensor size by using the crop factor
-    result.setCropFactor(image.getExifCropFactor());
+    result.setCropFactor(image.getCropFactor());
     /* Convert the lens image variables into a map of lens variables.
      * We make a tempory VariableMap for rach lens image variable. The Panorama
      * tools script codes map to the values in this. We then use the name and

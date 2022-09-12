@@ -33,6 +33,7 @@
 
 #include <hugin_shared.h>
 #include <algorithms/StitcherAlgorithm.h>
+#include <nona/StitcherOptions.h>
 
 namespace HuginBase {
         
@@ -49,8 +50,9 @@ namespace HuginBase {
                                AppBase::ProgressDisplay* progressDisplay,
                                const PanoramaOptions& options,
                                const UIntSet& usedImages,
-                               const String& filename)
-            : FileOutputStitcherAlgorithm(panoramaData, progressDisplay, options, usedImages, filename, true)
+                               const String& filename,
+                               const Nona::AdvancedOptions& advOptions)
+                               : FileOutputStitcherAlgorithm(panoramaData, progressDisplay, options, usedImages, filename, true), m_advOptions(advOptions)
         {};
         
         ///
@@ -61,6 +63,8 @@ namespace HuginBase {
         ///
         virtual bool runStitcher();  // uses Nona::stitchPanorama()
         
+    private:
+        Nona::AdvancedOptions m_advOptions;
     };
 
     

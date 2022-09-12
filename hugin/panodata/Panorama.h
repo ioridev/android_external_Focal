@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -38,10 +38,7 @@
 #endif // _HSI_IGNORE_SECTION
 
 namespace HuginBase {
-    
-    
-    
-    
+
 /** Memento class for a Panorama object
 *
 *  Holds the internal state of a Panorama.
@@ -56,7 +53,7 @@ class IMPEX PanoramaMemento : public PanoramaDataMemento
         
     public:
         PanoramaMemento()
-            : PanoramaDataMemento(), needsOptimization(false), optSwitch(0), optPhotoSwitch(0)
+            : PanoramaDataMemento(), optSwitch(0), optPhotoSwitch(0), needsOptimization(false)
         {};
         
         /// copy ctor.
@@ -67,18 +64,12 @@ class IMPEX PanoramaMemento : public PanoramaDataMemento
         
         virtual ~PanoramaMemento();
         
-        
-    protected:
-        /** enum for supported PTScript syntax bastards */
-        //  enum PTFileFormat { PTFILE_HUGIN, PTFILE_PTGUI, PTFILE_PTA };
-        
-        /** load a PTScript file
+        /** load a Hugin file
         *
-        *  initializes the PanoramaMemento from a PTScript file
+        *  initializes the PanoramaMemento from a script file
         */
         bool loadPTScript(std::istream & i, int & ptoVersion, const std::string & prefix = "");
-    
-        
+
     private:
         enum PTParseState {
             P_NONE,
@@ -97,6 +88,11 @@ class IMPEX PanoramaMemento : public PanoramaDataMemento
          * when necessary.
          */
         std::vector<SrcPanoImage *> images;
+        /** description of the icc profile */
+        std::string iccProfileDesc;
+        /** number of bands of first image (without alpha channel),
+          * currently we can't mix grayscale and RGB images */
+        int bands = 0;
         
         CPVector ctrlPoints;
         
@@ -195,7 +191,12 @@ class IMPEX Panorama : public ManagedPanoramaData, public AppBase::DocumentData
              return new Panorama(this->duplicate());
          }
         
-        
+        /** get a panorama, which does not contain
+        *   images linked with positions, the cps are moved to the first image
+        *   of each linked stacked
+        *  @param imageGroups contains a mapping of the initial images to the new images */
+        PanoramaData* getUnlinkedSubset(UIntSetVector& imageGroups) const;
+
     // -- Data Access --
         
     // = images =    
@@ -207,7 +208,7 @@ class IMPEX Panorama : public ManagedPanoramaData, public AppBase::DocumentData
         };
         
         /// get a panorama image, counting starts with 0
-        const SrcPanoImage & getImage(std::size_t nr) const
+        inline const SrcPanoImage & getImage(std::size_t nr) const
         {
             assert(nr < state.images.size());
             return *state.images[nr];
@@ -369,7 +370,16 @@ class IMPEX Panorama : public ManagedPanoramaData, public AppBase::DocumentData
             */
         void updateCtrlPointErrors(const UIntSet & imgs, const CPVector & cps);
         
-        
+        /** return description of icc profile used for pano */
+        const std::string getICCProfileDesc() const;
+        /** sets the icc profile description for check of same profile */
+        void setICCProfileDesc(const std::string& newDesc);
+        /** return number of bands of first image (without alpha channel)
+         *  so it can be 1 for grayscale or 3 for rgb images */
+        const int getNrOfBands() const;
+        /** sets the number of bands */
+        void setNrOfBands(const int nrBands);
+
     // = Variables =    
         
         /// get variables of this panorama
@@ -431,6 +441,13 @@ class IMPEX Panorama : public ManagedPanoramaData, public AppBase::DocumentData
          * the red and blue factor of each image with given factors 
         */
         virtual void updateWhiteBalance(double redFactor, double blueFactor);
+
+        /** returns the maximum exposure value difference of all images in the project */
+        const double getMaxExposureDifference() const;
+        /** return true, if the metadata indicates that the projects is a bracketet project */
+        const bool hasPossibleStacks() const;
+        /** create automatically stacks as indicated by metadata */
+        void linkPossibleStacks(bool linkPosition);
 
     // = Optimise Vector =    
         /** return the optimize settings stored inside panorama */
@@ -534,6 +551,13 @@ class IMPEX Panorama : public ManagedPanoramaData, public AppBase::DocumentData
             */
         void clearObservers();
         
+        /** return if the panorama class has pending changes
+            normally all controls listen to panoramaChanges notification and react only there,
+            but the fast preview window also reacts to changes in the Redraw procedure to handle
+            the tools like drag or crop, use this as workaround (it does not include all changes)
+        */
+        const bool hasPendingChanges() const;
+
         /** notify observers about changes in this class
             *
             *  This needs to be called explicitly by somebody after
@@ -572,7 +596,7 @@ class IMPEX Panorama : public ManagedPanoramaData, public AppBase::DocumentData
         void updateMasks(bool convertPosMaskToNeg=false);
         /** transfers given mask from image imgNr to all targetImgs
          */
-        void transferMask(MaskPolygon mask,unsigned int imgNr, const UIntSet targetImgs);
+        void transferMask(MaskPolygon mask,unsigned int imgNr, const UIntSet& targetImgs);
         /** updates the optimize vector according to master switches */
         void updateOptimizeVector();
         /** returns set of reference image and images linked with reference images */
@@ -669,31 +693,7 @@ class IMPEX Panorama : public ManagedPanoramaData, public AppBase::DocumentData
         /// adjust the links of the linked variables, must be called
         /// when a lens has been changed.
         void adjustVarLinks();
-
-
-        /// image addition notification
-    //    void notifyImageAdded(unsigned int imgNr);
-
-        /// image removal notification
-    //    void notifyImageRemoved(unsigned int imgNr);
-
-        /// image change notification
-    //    void notifyImageChanged(unsigned int imgNr);
-
-        
-
     private:
-
-        // data
-//        enum ProcessType { NO_PROCESS, OPTIMIZER, STITCHER };
-
-        // to run stitcher & optimizer
-//        ProcessType currentProcess;
-//        std::string optimizerExe;
-//        std::string stitcherExe;
-//        std::string PTScriptFile;
-        
-        //
         /** center the crop for given image and all linked images */
         void centerCrop(unsigned int imgNr);
         /** return the centered crop for given image */
@@ -716,12 +716,5 @@ class IMPEX Panorama : public ManagedPanoramaData, public AppBase::DocumentData
         std::set<std::string> m_ptoptimizerVarNames;
 };
 
-
-
-
 } // namespace
-
-
-
-
 #endif // _PANORAMA_H

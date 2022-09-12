@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -29,11 +29,18 @@
 namespace HuginBase
 {
 /** returns vector of set of output stacks */
-IMPEX std::vector<UIntSet> getHDRStacks(const PanoramaData & pano, UIntSet allImgs, PanoramaOptions opts);
+IMPEX UIntSetVector getHDRStacks(const PanoramaData & pano, UIntSet allImgs, PanoramaOptions opts);
 /** returns vector of set of output exposure layers */
-IMPEX std::vector<UIntSet> getExposureLayers(const PanoramaData & pano, UIntSet allImgs, PanoramaOptions opts);
+IMPEX UIntSetVector getExposureLayers(const PanoramaData & pano, UIntSet allImgs, PanoramaOptions opts);
+IMPEX UIntSetVector getExposureLayers(const PanoramaData & pano, UIntSet allImgs, const double maxEVDiff);
 /** returns set of images which are visible in output ROI */
-IMPEX UIntSet getImagesinROI (const PanoramaData& pano, const UIntSet activeImages);
+IMPEX UIntSet getImagesinROI(const PanoramaData& pano, const UIntSet activeImages);
+/** returns set of images which are visible in given ROI */
+IMPEX UIntSet getImagesinROI(const PanoramaData& pano, const UIntSet activeImages, const vigra::Rect2D panoROI);
+/** returns vector of UIntVector with image numbers of each stack sorted by exposure */
+IMPEX std::vector<HuginBase::UIntVector> getSortedStacks(const HuginBase::Panorama* pano);
+/** returns vector of image numbers for blending in approbiate order */
+IMPEX UIntVector getEstimatedBlendingOrder(const PanoramaData & pano, const UIntSet& images, const unsigned int referenceImage);
 }
 
 #endif /* _BASICALGORITHMS_LAYERSTACKS_H */

@@ -18,8 +18,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -39,8 +39,8 @@ class IMPEX CalculateFitPanorama : public PanoramaAlgorithm
 
     public:
         ///
-        CalculateFitPanorama(PanoramaData& panorama)
-         : PanoramaAlgorithm(panorama)
+        explicit CalculateFitPanorama(PanoramaData& panorama)
+            : PanoramaAlgorithm(panorama), o_resultHFOV(0), o_resultHeight(0)
         {};
         
         ///
@@ -91,7 +91,7 @@ class IMPEX FitPanorama : public CalculateFitPanorama
 
     public:
         ///
-        FitPanorama(PanoramaData& panorama)
+        explicit FitPanorama(PanoramaData& panorama)
          : CalculateFitPanorama(panorama)
         {};
         

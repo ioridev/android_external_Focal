@@ -2,7 +2,7 @@
 /** @file nona/RemappedPanoImage.h
  *
  *  Contains functions to transform whole images.
- *  Can use PTools::Transform or PT::SpaceTransform for the calculations
+ *  Can use PTools::Transform or PanoCommand::SpaceTransform for the calculations
  *
  *  @author Pablo d'Angelo <pablo.dangelo@web.de>
  *
@@ -19,8 +19,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -30,7 +30,7 @@
 
 #include <panodata/PanoramaData.h>
 #include <nona/RemappedPanoImage.h>
-
+#include <vigra_ext/impexalpha.hxx>
 
 namespace HuginBase {
 namespace Nona {
@@ -42,6 +42,9 @@ namespace Nona {
     {
         
         public:
+            SingleImageRemapper() : m_advancedOptions()
+            {};
+
             /** create a remapped pano image.
              *
              *  The image ownership is transferred to the caller.
@@ -50,14 +53,19 @@ namespace Nona {
                                                                         const PanoramaOptions & opts,
                                                                         unsigned int imgNr,
                                                                         vigra::Rect2D outputROI,
-                                                                        AppBase::MultiProgressDisplay& progress) = 0;
+                                                                        AppBase::ProgressDisplay* progress) = 0;
             
             virtual ~SingleImageRemapper() {};
             
-            
-        public:
+            void setAdvancedOptions(const HuginBase::Nona::AdvancedOptions advancedOptions)
+            {
+                m_advancedOptions = advancedOptions;
+            }
+
             ///
             virtual	void release(RemappedPanoImage<ImageType,AlphaType>* d) = 0;
+        protected:
+            HuginBase::Nona::AdvancedOptions m_advancedOptions;
         
     };
 
@@ -68,33 +76,12 @@ namespace Nona {
     {
         
     public:
-        FileRemapper()
+        FileRemapper() : SingleImageRemapper<ImageType, AlphaType>()
         {
             m_remapped = 0;
         }
 
         virtual ~FileRemapper() {};
-
-/**        
-    #define HUGIN_REMAP_IMGLOAD(TYPE, lut) \
-    { \
-        vigra::TYPE tmpImg(info.width(), info.height()); \
-        if (alpha) { \
-            vigra::importImageAlpha(info, vigra::destImage(tmpImg), \
-                                    vigra::destImage(srcAlpha)); \
-    { \
-        vigra::ImageExportInfo exi(DEBUG_FILE_PREFIX "hugin01_original_mask.tif"); \
-        vigra::exportImage(vigra::srcImageRange(srcAlpha), exi); \
-    } \
-    } else { \
-            vigra::importImage(info, vigra::destImage(tmpImg)); \
-    } \
-    { \
-        vigra::ImageExportInfo exi(DEBUG_FILE_PREFIX "hugin01_original.tif"); \
-        vigra::exportImage(vigra::srcImageRange(tmpImg), exi); \
-    } \
-    }
-*/
 
     typedef std::vector<float> LUT;
 
@@ -110,7 +97,7 @@ namespace Nona {
         virtual RemappedPanoImage<ImageType, AlphaType>*
         getRemapped(const PanoramaData & pano, const PanoramaOptions & opts,
                     unsigned int imgNr, vigra::Rect2D outputROI,
-                    AppBase::MultiProgressDisplay & progress);
+                    AppBase::ProgressDisplay* progress);
 
         ///
         virtual void release(RemappedPanoImage<ImageType,AlphaType>* d)
@@ -160,7 +147,7 @@ template <typename ImageType, typename AlphaType>
 RemappedPanoImage<ImageType, AlphaType>*
     FileRemapper<ImageType,AlphaType>::getRemapped(const PanoramaData & pano, const PanoramaOptions & opts,
                               unsigned int imgNr, vigra::Rect2D outputROI,
-                               AppBase::MultiProgressDisplay & progress)
+                              AppBase::ProgressDisplay* progress)
 {
     typedef typename ImageType::value_type PixelType;
     
@@ -173,11 +160,6 @@ RemappedPanoImage<ImageType, AlphaType>*
     
     // choose image type...
     const SrcPanoImage & img = pano.getImage(imgNr);
-    
-    vigra::Size2D origSrcSize = img.getSize();
-    // DGSW FIXME - Unreferenced
-    //		const PT::VariableMap & srcVars = pano.getImageVariables(imgNr);
-    //		const Lens & lens = pano.getLens(img.getLensNr());
     
     vigra::Size2D destSize(opts.getWidth(), opts.getHeight());
     
@@ -209,7 +191,7 @@ RemappedPanoImage<ImageType, AlphaType>*
     SrcPanoImage src = pano.getSrcImage(imgNr);
     
     // import the image
-    progress.setMessage(std::string("loading ") + hugin_utils::stripPath(img.getFilename()));
+    progress->setMessage("loading", hugin_utils::stripPath(img.getFilename()));
     
     if (alpha) {
         vigra::importImageAlpha(info, vigra::destImage(srcImg),
@@ -232,13 +214,14 @@ RemappedPanoImage<ImageType, AlphaType>*
     if (img.getVigCorrMode() & SrcPanoImage::VIGCORR_FLATFIELD) {
         // load flatfield image.
         vigra::ImageImportInfo ffInfo(img.getFlatfieldFilename().c_str());
-        progress.setMessage(std::string("flatfield vignetting correction ") + hugin_utils::stripPath(img.getFilename()));
+        progress->setMessage("flatfield vignetting correction", hugin_utils::stripPath(img.getFilename()));
         vigra_precondition(( ffInfo.numBands() == 1),
                            "flatfield vignetting correction: "
                            "Only single channel flatfield images are supported\n");
         ffImg.resize(ffInfo.width(), ffInfo.height());
         vigra::importImage(ffInfo, vigra::destImage(ffImg));
     }
+    m_remapped->setAdvancedOptions(SingleImageRemapper<ImageType, AlphaType>::m_advancedOptions);
     // remap the image
     
     remapImage(srcImg, srcAlpha, ffImg,

@@ -19,8 +19,8 @@
  *  General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -354,7 +354,7 @@ void setDestImage(Image & image, vigra::Diff2D size,
         image.format = projd.internalFormat;
     } else {
         image.format = _equirectangular;
-        PrintError("unsupported projection");
+        DEBUG_ERROR("unsupported projection");
     }
     image.formatParamCount = projd.numberOfParameters;
     assert(image.formatParamCount == (int) projParams.size());

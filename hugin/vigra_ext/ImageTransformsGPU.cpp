@@ -18,25 +18,15 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
 #include <iostream>
 #include <iomanip>
 
-#ifdef USE_GPU_ACCEL
-#if !defined Hugin_shared || !defined _WINDOWS
-#define GLEW_STATIC
-#endif
 #include <GL/glew.h>
-#ifdef __APPLE__
-  #include <GLUT/glut.h>
-#else
-  #include <GL/glut.h>
-#endif
-#endif
 
 #include <string.h>
 #ifdef _WIN32
@@ -118,20 +108,55 @@ static const char* AlphaCompositeKernelSource = {
 };
 
 static void checkGLErrors(int line, char* file) {
-    GLenum errCode;
-    if ((errCode = glGetError()) != GL_NO_ERROR) {
-        cerr << "nona: GL error in " << file << ":" << line << ": " << gluErrorString(errCode) << endl;
+    GLenum errCode = glGetError();
+    if (errCode != GL_NO_ERROR)
+    {
+        while (errCode != GL_NO_ERROR)
+        {
+            const GLubyte* message = gluErrorString(errCode);
+            std::cerr << "nona: GL error in " << file << ":" << line << std::endl;
+            if (message)
+            {
+#ifdef _WIN32
+                const char* messageChar = reinterpret_cast<const char*>(message);
+                size_t size = strlen(messageChar);
+                LPSTR OEMmessageBuffer = (LPSTR)LocalAlloc(LPTR, (size + 1)*sizeof(char));
+                if (OEMmessageBuffer)
+                {
+                    if (CharToOemBuff(messageChar, OEMmessageBuffer, size))
+                    {
+                        std::cerr << OEMmessageBuffer << " (0x" << std::hex << errCode << ")" << std::endl;
+                    }
+                    else
+                    {
+                        std::cerr << message << " (0x" << std::hex << errCode << ")" << std::endl;
+                    };
+                }
+                else
+                {
+                    std::cerr << message << " (0x" << std::hex << errCode << ")" << std::endl;
+                };
+                LocalFree(OEMmessageBuffer);
+#else
+                std::cerr << message << " (0x" << std::hex << errCode << ")" << std::endl;
+#endif
+            }
+            else
+            {
+                std::cerr << "Error code: 0x" << std::hex << errCode << std::endl;
+            }
+            errCode = glGetError();
+        };
         exit(1);
     }
 }
 
 static void printInfoLog(GLhandleARB obj) {
-  GLint infologLength = 0;
-  GLint charsWritten = 0;
-  char *infoLog;
+    GLint infologLength = 0;
+    GLint charsWritten = 0;
     glGetObjectParameterivARB(obj, GL_OBJECT_INFO_LOG_LENGTH_ARB, &infologLength);
     if (infologLength > 1) {
-        infoLog = new char[infologLength];
+        char* infoLog = new char[infologLength];
         glGetInfoLogARB(obj, infologLength, &charsWritten, infoLog);
         cout << "nona: GL info log:" << endl << infoLog << endl << endl;
         delete[] infoLog;
@@ -295,7 +320,7 @@ bool transformImageGPUIntern(const std::string& coordXformGLSL,
                              const int destAlphaGLType,
                              const bool warparound)
 {
-    long t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17, t18, t19, t20, t21;
+    long t1, t3, t5, t6, t7, t9, t10, t11, t12, t13, t14, t15, t16, t17, t18, t19, t21;
 
     const int xstart = destUL.x;
     const int xend   = destUL.x + destSize.x;
@@ -340,14 +365,72 @@ bool transformImageGPUIntern(const std::string& coordXformGLSL,
         cout << "needsAtanWorkaround=" << needsAtanWorkaround << endl;
 
     GLint maxTextureSize;
-    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
+    // check maximum possible texture size, GL_MAX_RECTANGLE_TEXTURE_SIZE is only available in OpenGL 3.1 and later
+    glGetIntegerv(GL_MAX_RECTANGLE_TEXTURE_SIZE_ARB, &maxTextureSize);
+    if (printDebug)
+    {
+        cout << "Retrieving GL_MAX_RECTANGLE_TEXTURE_SIZE: " << maxTextureSize << std::endl;
+    };
+    if (glGetError() != GL_NO_ERROR || maxTextureSize < 1024)
+    {
+        // fall back to GL_MAX_TEXTURE_SIZE
+        glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
+        if (printDebug)
+        {
+            cout << "Retrieving GL_MAX_TEXTURE_SIZE: " << maxTextureSize << std::endl;
+        };
+    };
+    // both functions can return only a rough estimate, so do some more test
+    // if graphic card can handle this size of textures
+    {
+        GLint textureWidth=0;
+        while (textureWidth < maxTextureSize)
+        {
+            glTexImage2D(GL_PROXY_TEXTURE_2D, 0, GL_RGBA32F_ARB, maxTextureSize, maxTextureSize, 0, GL_RGBA, GL_FLOAT, NULL);
+            glGetTexLevelParameteriv(GL_PROXY_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &textureWidth);
+            if (printDebug)
+            {
+                cout << "Testing texture size " << maxTextureSize << ", result=" << textureWidth << std::endl;
+            };
+            if (textureWidth != maxTextureSize)
+            {
+                maxTextureSize /= 2;
+            };
+            if (maxTextureSize < 1024)
+            {
+                cerr << "nona: Can't allocate texture with a size of at least 1024 pixels." << std::endl;;
+                exit(1);
+            };
+        };
+    };
     if(printDebug)
         cout << "maxTextureSize=" << maxTextureSize << endl;
 
     // Artificial limit: binding big textures to fbos seems to be very slow.
     //maxTextureSize = 2048;
 
-    const long long int GpuMemoryInBytes = 512 << 20;
+    long long int GpuMemoryInBytes = 512 << 20;
+    // read memory size, not implemented on all graphic cards
+    {
+        // for nvidia cards
+#define GL_GPU_MEM_INFO_TOTAL_AVAILABLE_MEM_NVX 0x9048
+        GLint total_mem_kb = 0;
+        glGetIntegerv(GL_GPU_MEM_INFO_TOTAL_AVAILABLE_MEM_NVX, &total_mem_kb);
+        if (glGetError() == GL_NO_ERROR)
+        {
+            GpuMemoryInBytes = total_mem_kb * 1024ll;
+        };
+    };
+    {
+        //for amd/ati cards
+#define TEXTURE_FREE_MEMORY_ATI 0x87FC
+        GLint param[4];
+        glGetIntegerv(TEXTURE_FREE_MEMORY_ATI, param);
+        if (glGetError() == GL_NO_ERROR)
+        {
+            GpuMemoryInBytes = param[0] * 1024ll;
+        };
+    }
     const double SourceAllocationRatio = 0.7;
 
     const int bytesPerSourcePixel = BytesPerPixel[srcGLInternalFormat]
@@ -370,7 +453,7 @@ bool transformImageGPUIntern(const std::string& coordXformGLSL,
     const long long int maxDestPixels = gpuMemoryRemaining / bytesPerDestPixel;
 
     vector<Rect2D> destChunks;
-    makeChunks(destSize.x, destSize.y, 2048, maxDestPixels, destChunks);
+    makeChunks(destSize.x, destSize.y, maxTextureSize, maxDestPixels, destChunks);
 
     const long long int totalGpuMemoryUsed = (sourceChunks[0].area() * bytesPerSourcePixel) + (destChunks[0].area() * bytesPerDestPixel);
     vigra_assert(totalGpuMemoryUsed <= GpuMemoryInBytes,
@@ -729,7 +812,7 @@ bool transformImageGPUIntern(const std::string& coordXformGLSL,
     glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP);
-    glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_LUMINANCE_ALPHA32F_ARB, destChunks[0].width(), destChunks[0].height() + destOdd, 0, GL_LUMINANCE_ALPHA, GL_FLOAT, NULL);
+    glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA32F_ARB, destChunks[0].width(), destChunks[0].height() + destOdd, 0, GL_LUMINANCE_ALPHA, GL_FLOAT, NULL);
     CHECK_GL();
 
     // Setup coordinate framebuffer
@@ -828,7 +911,7 @@ bool transformImageGPUIntern(const std::string& coordXformGLSL,
         glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP);
         glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP);
-        glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, XGLMap[destGLTransferFormat], destChunks[0].width(), destChunks[0].height() + destOdd, 0, XGLMap[destGLFormat], XGLMap[destGLType], NULL);
+        glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, XGLMap[destGLInternalFormat], destChunks[0].width(), destChunks[0].height() + destOdd, 0, XGLMap[destGLFormat], XGLMap[destGLType], NULL);
 
         glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, destFB);
         glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_RECTANGLE_ARB, destTexture, 0);
@@ -847,7 +930,7 @@ bool transformImageGPUIntern(const std::string& coordXformGLSL,
         glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP);
         glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP);
-        glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_ALPHA, destChunks[0].width(), destChunks[0].height() + destOdd, 0, GL_ALPHA, XGLMap[destAlphaGLType], NULL);
+        glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA, destChunks[0].width(), destChunks[0].height() + destOdd, 0, GL_ALPHA, XGLMap[destAlphaGLType], NULL);
         CHECK_GL();
 
         glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, destAlphaFB);
@@ -861,8 +944,7 @@ bool transformImageGPUIntern(const std::string& coordXformGLSL,
     glFinish();
     if(printDebug)
     {
-        t2=getms();
-        cout << "gpu shader texture/framebuffer setup time = " << ((t2-t21)/1000.0) << endl;
+        cout << "gpu shader texture/framebuffer setup time = " << ((getms()-t21)/1000.0) << endl;
     };
 
     // Render each dest chunk
@@ -890,7 +972,7 @@ bool transformImageGPUIntern(const std::string& coordXformGLSL,
         glFinish();
         if(printDebug)
         {
-            t4=getms();
+            long t4=getms();
             cout << "gpu dest chunk=" << *dI << " coord image render time = " << ((t4-t3)/1000.0) << endl;
         };
 
@@ -956,8 +1038,7 @@ bool transformImageGPUIntern(const std::string& coordXformGLSL,
                         glFinish();
                         if(printDebug)
                         {
-                            t8=getms();
-                            cout << "gpu dest chunk=" << *dI << " source chunk=" << *sI << " src+alpha render = " << ((t8-t7)/1000.0) << endl;
+                            cout << "gpu dest chunk=" << *dI << " source chunk=" << *sI << " src+alpha render = " << ((getms()-t7)/1000.0) << endl;
                         };
                     }
                 }
@@ -1014,8 +1095,7 @@ bool transformImageGPUIntern(const std::string& coordXformGLSL,
                         glFinish();
                         if(printDebug)
                         {
-                            t8=getms();
-                            cout << "gpu dest chunk=" << *dI << " source chunk=" << *sI << " src+alpha render = " << ((t8-t7)/1000.0) << endl;
+                            cout << "gpu dest chunk=" << *dI << " source chunk=" << *sI << " src+alpha render = " << ((getms()-t7)/1000.0) << endl;
                         };
                     }
                     else {
@@ -1202,6 +1282,7 @@ bool transformImageGPUIntern(const std::string& coordXformGLSL,
         }
         else {
             // Move output accumTexture to dest texture then readback.
+            glDrawBuffer(GL_COLOR_ATTACHMENT0_EXT);
             glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, destFB);
             glUseProgramObjectARB(0);
 
@@ -1339,10 +1420,14 @@ bool transformImageGPUIntern(const std::string& coordXformGLSL,
     glDeleteObjectARB(normalizationPhotometricShaderObject);
     glDeleteObjectARB(normalizationPhotometricProgramObject);
 
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+
     glFinish();
     if(printDebug)
     {
-        t20=getms();
+        long t20=getms();
         cout << "gpu destruct time = " << ((t20-t19)/1000.0) << endl;
         cout << "gpu total time = " << ((t20-t1)/1000.0) << endl;
     };

@@ -16,17 +16,18 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
 #include <vigra/sized_int.hxx>
 #include <vigra_ext/HDRUtils.h>
-#include <vigra_impex/auto_file.hxx>
+#include <vigra_ext/FileRAII.h>
 
 #include <ImfRgbaFile.h>
 #include <ImfArray.h>
+#include "hugin_utils/stl_utils.h"
 
 
 // hack to read pgm header
@@ -53,10 +54,9 @@ template<class Functor>
 void reduceFilesToHDR(std::vector<std::string> input, std::string output,
                       bool onlyCompleteOverlap, Functor & reduce)
 {
-    typedef float MaskType;
     typedef vigra::RGBValue<float> PixelType;
-    typedef boost::shared_ptr<Imf::RgbaInputFile> InFilePtr;
-    typedef boost::shared_ptr<vigra::auto_file> AutoFilePtr;
+    typedef std::shared_ptr<Imf::RgbaInputFile> InFilePtr;
+    typedef std::shared_ptr<vigra_ext::FileRAII> AutoFilePtr;
 
     // open all input files.
     std::vector<AutoFilePtr> inputGrayFiles;
@@ -66,6 +66,10 @@ void reduceFilesToHDR(std::vector<std::string> input, std::string output,
     vigra::Rect2D outputSize;
     for (unsigned i=0; i < input.size(); i++) {
         std::string grayFile = hugin_utils::stripExtension(input[i]) + "_gray.pgm";
+        // check that input images is exr file
+        vigra_precondition(hugin_utils::tolower(hugin_utils::getExtension(input[i])) == "exr", "Input files needs to be (linear) exr images");
+        // check that file with pixel weights exists
+        vigra_precondition(hugin_utils::FileExists(grayFile), "File with original pixel weights (" + grayFile + ") is missing");
         InFilePtr in(new Imf::RgbaInputFile(input[i].c_str()));
         inputFiles.push_back(in);
         Imath::Box2i dw = in->dataWindow();
@@ -74,7 +78,7 @@ void reduceFilesToHDR(std::vector<std::string> input, std::string output,
         dw = in->displayWindow();
         vigra::Rect2D imgSize(dw.min.x, dw.min.y, dw.max.x+1, dw.max.y+1);
 
-        AutoFilePtr inGray(new vigra::auto_file(grayFile.c_str(), "rb"));
+        AutoFilePtr inGray(new vigra_ext::FileRAII(grayFile.c_str(), "rb"));
         int w, h, maxval;
         readPGMHeader(inGray->get(), w, h, maxval);
         vigra_precondition(w == roi.width() && h == roi.height(), ".exr and _gray.pgm images not of the same size");
@@ -105,8 +109,8 @@ void reduceFilesToHDR(std::vector<std::string> input, std::string output,
     if (nScanlines < 10) nScanlines = 10;
     DEBUG_DEBUG("processing " << nScanlines << " scanlines in one go");
 
-    typedef boost::shared_ptr<vigra::ArrayVector<vigra::UInt8> > Array8Ptr;
-    typedef boost::shared_ptr<Imf::Array2D<Imf::Rgba> > ArrayPtr;
+    typedef std::shared_ptr<vigra::ArrayVector<vigra::UInt8> > Array8Ptr;
+    typedef std::shared_ptr<Imf::Array2D<Imf::Rgba> > ArrayPtr;
     std::vector<ArrayPtr> inputArrays;
     std::vector<Array8Ptr> inputGrayArrays;
     std::vector<Imf::Rgba *> inputPtr(input.size());

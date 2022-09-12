@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -29,35 +29,33 @@
 #include <algorithms/PanoramaAlgorithm.h>
 #include <panodata/PanoramaData.h>
 
-#include <boost/dynamic_bitset.hpp>
+#include <vector>
+#include <list>
 
 namespace HuginBase {
 
-class IMPEX CalculateOptimalROI : public PanoramaAlgorithm
+class IMPEX CalculateOptimalROI : public TimeConsumingPanoramaAlgorithm
 {
     public:
-        ///
-        CalculateOptimalROI(PanoramaData& panorama, bool intersect = false)
-         : PanoramaAlgorithm(panorama), intersection(intersect)
+        /** constructor */
+        CalculateOptimalROI(PanoramaData& panorama, AppBase::ProgressDisplay* progress, bool intersect = false)
+            : TimeConsumingPanoramaAlgorithm(panorama, progress), intersection(intersect)
         {
             //set to zero for error condition
-            o_optimalROI = vigra::Rect2D(0,0,0,0);
+            m_bestRect = vigra::Rect2D(0,0,0,0);
             o_optimalSize = vigra::Size2D(0,0);
         }
-
-        CalculateOptimalROI(PanoramaData& panorama, std::vector<UIntSet> hdr_stacks)
-         : PanoramaAlgorithm(panorama), intersection(true), stacks(hdr_stacks)
+        CalculateOptimalROI(PanoramaData& panorama, AppBase::ProgressDisplay* progress, std::vector<UIntSet> hdr_stacks)
+            : TimeConsumingPanoramaAlgorithm(panorama, progress), intersection(true), stacks(hdr_stacks)
         {
             //set to zero for error condition
-            o_optimalROI = vigra::Rect2D(0,0,0,0);
+            m_bestRect = vigra::Rect2D(0, 0, 0, 0);
             o_optimalSize = vigra::Size2D(0,0);
         }
         
-        ///
-        virtual ~CalculateOptimalROI()
-        {}
+        /** destructor */
+        virtual ~CalculateOptimalROI() {};
         
-    public:
         ///
         virtual bool modifiesPanoramaData() const
             { return false; }
@@ -66,68 +64,49 @@ class IMPEX CalculateOptimalROI : public PanoramaAlgorithm
         virtual bool runAlgorithm()
         {
             printf("Run called\n");
-            calcOptimalROI(o_panorama);
-            return true; // let's hope so.
+            return calcOptimalROI(o_panorama);
         }
-        
-    public:
-        ///
-        bool calcOptimalROI(PanoramaData& panorama);
         
         /// return the ROI structure?, for now area
         virtual vigra::Rect2D getResultOptimalROI()
         {
-            //printf("Get Result ROI\n");
-            //printf("Get Result ROI\n");
-            // [TODO] if(!hasRunSuccessfully()) DEBUG;
-            return o_optimalROI;
-        }
-
-        /// return the ROI structure?, for now area
-        virtual vigra::Size2D getResultOptimalSize()
-        {
-            //printf("Get Result Size\n");
-            // [TODO] if(!hasRunSuccessfully()) DEBUG;
-            return o_optimalSize;
+            if (hasRunSuccessfully())
+            {
+                return m_bestRect;
+            }
+            else
+            {
+                return vigra::Rect2D();
+            }
         }
 
         /** sets the stack vector */
         void setStacks(std::vector<UIntSet> hdr_stacks);
 
     private:
-        vigra::Rect2D o_optimalROI;
+        ///
+        bool calcOptimalROI(PanoramaData& panorama);
+
         vigra::Size2D o_optimalSize;
-        
         bool intersection;
-        
         std::vector<UIntSet> stacks;
-        
         UIntSet activeImages;
         std::map<unsigned int,PTools::Transform*> transfMap;
         //map for storing already tested pixels
-        boost::dynamic_bitset<> testedPixels;
-        boost::dynamic_bitset<> pixels;
-        
+        std::vector<bool> testedPixels;
+        std::vector<bool> pixels;
+        vigra::Rect2D m_bestRect;
+
         bool imgPixel(int i, int j);
         bool stackPixel(int i, int j, UIntSet &stack);
         
         //local stuff, convert over later
-        struct nonrec
-        {
-            int left,right,top,bottom;
-            struct nonrec *next;
-        };
+        bool autocrop();
+        void nonreccheck(const vigra::Rect2D& rect, int acc, int searchStrategy, long& maxvalue);
+        bool CheckRectCoversPano(const vigra::Rect2D& rect);
+        void AddCheckingRects(std::list<vigra::Rect2D>& testingRects, const vigra::Rect2D& rect, const long maxvalue);
 
-        void makecheck(int left,int top,int right,int bottom);
-        int autocrop();
-        void nonreccheck(int left,int top,int right,int bottom,int acc,int searchStrategy);
-        
-        int count;
-        struct nonrec *head;
-        struct nonrec *tail;
-        struct nonrec best;
-
-        long maxvalue;
+        void CleanUp();
 };
 
 } //namespace

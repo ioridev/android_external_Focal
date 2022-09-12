@@ -22,8 +22,8 @@
  *  General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -43,18 +43,20 @@ class IMPEX CalculateImageOverlap
 {
 public:
     /** constructor */
-    CalculateImageOverlap(const PanoramaData * pano);
+    explicit CalculateImageOverlap(const PanoramaData * pano);
     /** destructor */
     virtual ~CalculateImageOverlap();
     /** does the calculation, 
         for each image steps*steps points are extracted and tested with all other images overlap */
     void calculate(unsigned int steps);
     /** returns the overlap for 2 images with number i and j */
-    double getOverlap(unsigned int i, unsigned int j);
+    double getOverlap(unsigned int i, unsigned int j) const;
     /** limits the calculation of the overlap to given image numbers */
     void limitToImages(UIntSet img);
     /** returns a set of images which overlap with given image number */
-    UIntSet getOverlapForImage(unsigned int i);
+    UIntSet getOverlapForImage(unsigned int i) const;
+    /** return number of images in underlying pano */
+    unsigned int getNrOfImages() const { return m_nrImg; };
 
 private:
     std::vector<std::vector<double> > m_overlap;
@@ -62,7 +64,7 @@ private:
     std::vector<PTools::Transform*> m_invTransform;
     unsigned int m_nrImg;
     const PanoramaData* m_pano;
-    UIntSet testImages;
+    std::vector<unsigned int> m_testImages;
 };
 
 } //namespace

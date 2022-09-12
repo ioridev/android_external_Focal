@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -81,8 +81,6 @@ void reduceNTimes(Image & in, ImageMask & inMask, Image & out, ImageMask & outMa
 {
     typedef typename Image::value_type vt;
     typedef typename vigra::NumericTraits<vt>::RealPromote SKIPSMType;
-    typedef typename ImageMask::value_type mt;
-//    typedef typename vigra::NumericTraits<mt>::Promote SKIPSMAlphaType;
     typedef double SKIPSMAlphaType;
 
     if (n <= 0) {
@@ -163,6 +161,7 @@ void reduceToNextLevel(ImageIn & in, ImageInMask & inMask, ImageOut & out, Image
     w = (w + 1) >> 1;
     h = (h + 1) >> 1;
     out.resize(w,h);
+    outMask.resize(w, h);
     enblend::reduce<SKIPSMType, SKIPSMAlphaType>(false, srcImageRange(in), srcImage(inMask),
                                 destImageRange(out), destImageRange(outMask));
 }

@@ -18,8 +18,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -32,13 +32,11 @@
 
 namespace HuginBase {
 
-using namespace hugin_utils;
-
 void CalculateFitPanorama::fitPano(PanoramaData& panorama, double& HFOV, double& height)
 {
     // FIXME: doesn't work properly for fisheye and mirror projections,
     // it will not calculate a vfov bigger than 180.
-	FDiff2D fov = CalculateFOV::calcFOV(panorama);
+    hugin_utils::FDiff2D fov = CalculateFOV::calcFOV(panorama);
     
     // use estimated fov to calculate a suitable panorama height.
     // calculate VFOV based on current panorama
@@ -57,12 +55,12 @@ void CalculateFitPanorama::fitPano(PanoramaData& panorama, double& HFOV, double&
     fov.x = std::min(fov.x, panorama.getOptions().getMaxHFOV());
     fov.y = std::min(fov.y, panorama.getOptions().getMaxVFOV());
     
-    FDiff2D pmiddle;
+    hugin_utils::FDiff2D pmiddle;
     // special case for projections with max VFOV > 180 (fisheye, stereographic)
     if (panorama.getOptions().getMaxVFOV() >  180 && fov.x > 180) {
-        transf.transform(pmiddle, FDiff2D(180, 180 - fov.x/2+0.01));
+        transf.transform(pmiddle, hugin_utils::FDiff2D(180, 180 - fov.x / 2 + 0.01));
     } else {
-        transf.transform(pmiddle, FDiff2D(0, fov.y/2));
+        transf.transform(pmiddle, hugin_utils::FDiff2D(0, fov.y / 2));
     }
     
     height = fabs(2*pmiddle.y);

@@ -18,31 +18,29 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
 #include "Stitcher.h"
 
-using namespace std;
-using namespace vigra;
-
 void HuginBase::Nona::stitchPanoGray_32_float(const PanoramaData & pano,
                                  const PanoramaOptions & opts,
-                                 AppBase::MultiProgressDisplay & progress,
+                                 AppBase::ProgressDisplay* progress,
                                  const std::string & basename,
                                  const UIntSet & usedImgs,
-                                 const char * pixelType)
+                                 const char * pixelType, 
+                                 const AdvancedOptions& advOptions)
 {
     if (strcmp(pixelType, "UINT32") == 0 ) {
-        stitchPanoIntern<UInt32Image,BImage>(pano, opts, progress, basename, usedImgs);
+        stitchPanoIntern<vigra::UInt32Image, vigra::BImage>(pano, opts, progress, basename, usedImgs, advOptions);
     } else if (strcmp(pixelType, "INT32") == 0 ) {
-        stitchPanoIntern<IImage,BImage>(pano, opts, progress, basename, usedImgs);
+        stitchPanoIntern<vigra::IImage, vigra::BImage>(pano, opts, progress, basename, usedImgs, advOptions);
     } else if (strcmp(pixelType, "FLOAT") == 0 ) {
-        stitchPanoIntern<FImage,BImage>(pano, opts, progress, basename, usedImgs);
+        stitchPanoIntern<vigra::FImage, vigra::BImage>(pano, opts, progress, basename, usedImgs, advOptions);
     } else if (strcmp(pixelType, "DOUBLE") == 0 ) {
-        stitchPanoIntern<DImage,BImage>(pano, opts, progress, basename, usedImgs);
+        stitchPanoIntern<vigra::DImage, vigra::BImage>(pano, opts, progress, basename, usedImgs, advOptions);
     } else {
         UTILS_THROW(std::runtime_error, "Unsupported pixel type: " << pixelType );
         return;

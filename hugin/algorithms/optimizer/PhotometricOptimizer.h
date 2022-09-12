@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -30,7 +30,7 @@
 
 #include <vector>
 #include <panodata/PanoramaData.h>
-#include <appbase/ProgressReporterOld.h>
+#include <appbase/ProgressDisplay.h>
 #include <vigra_ext/VignettingCorrection.h>
 
 namespace HuginBase
@@ -46,9 +46,9 @@ namespace HuginBase
             ///
             PhotometricOptimizer(PanoramaData& panorama, AppBase::ProgressDisplay* progressDisplay,
                                  const OptimizeVector& vars,
-                                 const PointPairs& correspondences)
+                                 const PointPairs& correspondences, const float imageStepSize)
                 : TimeConsumingPanoramaAlgorithm(panorama, progressDisplay),
-                  o_vars(vars), o_correspondences(correspondences), o_resultError(0.0)
+                  o_vars(vars), o_correspondences(correspondences), o_resultError(0.0), o_imageStepSize(imageStepSize)
             {};
         
             ///
@@ -59,7 +59,8 @@ namespace HuginBase
             ///
             static void optimizePhotometric(PanoramaData& pano, const OptimizeVector& vars,
                                             const PointPairs& correspondences,
-                                            AppBase::ProgressReporter& progress,
+                                            const float imageStepSize,
+                                            AppBase::ProgressDisplay* progress,
                                             double& error);
         
         protected:
@@ -82,14 +83,14 @@ namespace HuginBase
                 bool symmetricError;
 
                 int m_maxIter;
-                AppBase::ProgressReporter& m_progress;
+                AppBase::ProgressDisplay* m_progress;
 
 
                 ///
                 OptimData(const PanoramaData& pano, const OptimizeVector& optvars,
                           const std::vector<vigra_ext::PointPairRGB>& data,
                           double mEstimatorSigma, bool symmetric,
-                          int maxIter, AppBase::ProgressReporter& progress);
+                          int maxIter, AppBase::ProgressDisplay* progress);
 
                 /// copy optimisation variables into x
                 void ToX(double * x);
@@ -125,6 +126,7 @@ namespace HuginBase
         protected:
             const OptimizeVector& o_vars;
             const PointPairs& o_correspondences;
+            const float o_imageStepSize;
             double o_resultError;
     };
 
@@ -146,8 +148,9 @@ namespace HuginBase
             SmartPhotometricOptimizer(PanoramaData& panorama, AppBase::ProgressDisplay* progressDisplay,
                                        const OptimizeVector& vars,
                                        const PointPairs& correspondences,
+                                       const float imageStepSize,
                                        PhotometricOptimizeMode optMode)
-                : PhotometricOptimizer(panorama, progressDisplay, vars, correspondences), o_optMode(optMode)
+                : PhotometricOptimizer(panorama, progressDisplay, vars, correspondences, imageStepSize), o_optMode(optMode)
             {};
             
             ///
@@ -159,7 +162,8 @@ namespace HuginBase
              */
             static void smartOptimizePhotometric(PanoramaData & pano, PhotometricOptimizeMode mode,
                                                  const std::vector<vigra_ext::PointPairRGB> & correspondences,
-                                                 AppBase::ProgressReporter & progress,
+                                                 const float imageStepSize,
+                                                 AppBase::ProgressDisplay* progress,
                                                  double & error);
             
             ///

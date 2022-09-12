@@ -16,8 +16,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -46,6 +46,16 @@ unsigned int ConstImageVariableGroup::getPartNumber(unsigned int imageNr) const
     DEBUG_ASSERT(imageNr < m_image_part_numbers.size());
     DEBUG_ASSERT(m_image_part_numbers.size() == m_pano.getNrOfImages());
     return m_image_part_numbers[imageNr];
+}
+
+UIntSetVector ConstImageVariableGroup::getPartsSet() const
+{
+    UIntSetVector result(getNumberOfParts(), HuginBase::UIntSet());
+    for (unsigned int imgNr = 0; imgNr<m_image_part_numbers.size(); ++imgNr)
+    {
+        result[m_image_part_numbers[imgNr]].insert(imgNr);
+    };
+    return result;
 }
 
 bool ConstImageVariableGroup::getVarLinkedInPart(ImageVariableEnum variable,
@@ -174,7 +184,7 @@ void ImageVariableGroup::switchParts (unsigned int imageNr, unsigned int partNr)
     DEBUG_TRACE("Switching image " << imageNr << " to part " << partNr);
     if (partNr > m_num_parts)
     {
-        DEBUG_ERROR( "Request to switch an image to a nonexistant part." );
+        DEBUG_ERROR( "Request to switch an image to a nonexistent part." );
         return;
     }
     // find an image in this part.
@@ -184,7 +194,7 @@ void ImageVariableGroup::switchParts (unsigned int imageNr, unsigned int partNr)
     // Decide which variables to link.
     // Find which variables are linked in the other image.
     std::set<ImageVariableEnum> linked_variables;
-    for(std::set<ImageVariableEnum>::iterator i = m_variables.begin(); i != m_variables.end(); i++)
+    for(std::set<ImageVariableEnum>::iterator i = m_variables.begin(); i != m_variables.end(); ++i)
     {
         switch (*i)
         {
@@ -209,7 +219,7 @@ void ImageVariableGroup::switchParts (unsigned int imageNr, unsigned int partNr)
     }
     
     // unlink the image from the part it originally was part off.
-    for(std::set<ImageVariableEnum>::iterator i = m_variables.begin(); i != m_variables.end(); i++)
+    for(std::set<ImageVariableEnum>::iterator i = m_variables.begin(); i != m_variables.end(); ++i)
     {
         switch (*i)
         {
@@ -223,7 +233,7 @@ void ImageVariableGroup::switchParts (unsigned int imageNr, unsigned int partNr)
     }
     
     // link the variables
-    for(std::set<ImageVariableEnum>::iterator i = linked_variables.begin(); i != linked_variables.end(); i++)
+    for(std::set<ImageVariableEnum>::iterator i = linked_variables.begin(); i != linked_variables.end(); ++i)
     {
         switch (*i)
         {
@@ -248,7 +258,7 @@ void ImageVariableGroup::switchParts (unsigned int imageNr, unsigned int partNr)
     setPartNumbers();
 }
 
-std::size_t ConstImageVariableGroup::getNumberOfParts()
+std::size_t ConstImageVariableGroup::getNumberOfParts() const
 {
     return m_num_parts;
 }
@@ -288,7 +298,7 @@ void ConstImageVariableGroup::setPartNumbers()
         {
             // check each variable in the group
             for (std::set<ImageVariableEnum>::const_iterator k = m_variables.begin();
-                 (k != m_variables.end()) && (part_number != j); k++)
+                 (k != m_variables.end()) && (part_number != j); ++k)
             {
                 switch (*k)
                 {

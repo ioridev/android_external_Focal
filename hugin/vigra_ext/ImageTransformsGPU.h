@@ -19,8 +19,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -36,17 +36,11 @@
 #include <vigra_ext/ROIImage.h>
 #include <vigra_ext/Interpolators.h>
 #include <vigra/accessor.hxx>
-#include <vigra/impex.hxx>
-#include <vigra_ext/impexalpha.hxx>
 #include <vigra_ext/FunctorAccessor.h>
 
 #include <hugin_math/hugin_math.h>
 #include <hugin_utils/utils.h>
-#include <appbase/ProgressDisplayOld.h>
-
-#include "MultiThreadOperations.h"
-#include <boost/thread/thread.hpp>
-#include <boost/bind.hpp>
+#include <appbase/ProgressDisplay.h>
 
 using vigra::NumericTraits;
 
@@ -187,13 +181,11 @@ void transformImageGPUIntern(vigra::triple<SrcImageIterator, SrcImageIterator, S
                              vigra::Diff2D destUL,
                              Interpolator interp,
                              bool warparound,
-                             AppBase::MultiProgressDisplay & prog)
+                             AppBase::ProgressDisplay* progress)
 {
     typedef typename SrcAccessor::value_type SrcValueType;
     typedef typename DestAccessor::value_type DestValueType;
     typedef typename AlphaAccessor::value_type AlphaValueType;
-
-    prog.pushTask(AppBase::ProgressTask("Remapping", "", 0));
 
     vigra::Diff2D srcSize = src.second - src.first;
     vigra::Diff2D destSize = dest.second - dest.first;
@@ -246,7 +238,6 @@ void transformImageGPUIntern(vigra::triple<SrcImageIterator, SrcImageIterator, S
                             GpuNumericTraits<AlphaValueType>::ImagePixelComponentGLType,
                             warparound);
 
-    prog.popTask();
 }
 
 
@@ -267,14 +258,12 @@ void transformImageAlphaGPUIntern(vigra::triple<SrcImageIterator, SrcImageIterat
                                   vigra::Diff2D destUL,
                                   Interpolator interp,
                                   bool warparound,
-                                  AppBase::MultiProgressDisplay & prog)
+                                  AppBase::ProgressDisplay* progress)
 {
     typedef typename SrcAccessor::value_type SrcValueType;
     typedef typename SrcAlphaAccessor::value_type SrcAlphaType;
     typedef typename DestAccessor::value_type DestValueType;
     typedef typename AlphaAccessor::value_type DestAlphaType;
-
-    prog.pushTask(AppBase::ProgressTask("Remapping", "", 0));
 
     vigra::Diff2D srcSize = src.second - src.first;
     vigra::Diff2D destSize = dest.second - dest.first;
@@ -445,7 +434,6 @@ void transformImageAlphaGPUIntern(vigra::triple<SrcImageIterator, SrcImageIterat
               << "stddev=" << (sumErrorSq/samples - avgError*avgError) << std::endl;
 #endif
 
-    prog.popTask();
 };
 
 
@@ -488,7 +476,7 @@ void transformImageGPU(vigra::triple<SrcImageIterator, SrcImageIterator, SrcAcce
                        PixelTransform & pixelTransform,
                        bool warparound,
                        Interpolator interpol,
-                       AppBase::MultiProgressDisplay & progress)
+                       AppBase::ProgressDisplay* progress)
 {
     switch (interpol) {
     case INTERP_CUBIC:
@@ -554,7 +542,7 @@ void transformImageAlphaGPU(vigra::triple<SrcImageIterator, SrcImageIterator, Sr
                             PixelTransform & pixelTransform,
                             bool warparound,
                             Interpolator interpol,
-                            AppBase::MultiProgressDisplay & progress)
+                            AppBase::ProgressDisplay* progress)
 {
     switch (interpol) {
     case INTERP_CUBIC:

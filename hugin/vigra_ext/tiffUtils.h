@@ -18,8 +18,8 @@
  *  Lesser General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public
- *  License along with this software; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  License along with this software. If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -32,6 +32,7 @@
 #include <vigra/functorexpression.hxx>
 
 #include <vigra_ext/FunctorAccessor.h>
+#include <hugin_utils/utils.h>
 
 #include <tiffio.h>
 
@@ -116,8 +117,9 @@ inline void createTiffDirectory(vigra::TiffImage * tiff, const std::string & pag
     TIFFSetField(tiff, TIFFTAG_COMPRESSION, tiffcomp);
 
     // Set ICC profile, if available.
-    if (icc.size() > 0) {
-        TIFFSetField(tiff, TIFFTAG_ICCPROFILE, icc.size(), icc.front());
+    if (!icc.empty())
+    {
+        TIFFSetField(tiff, TIFFTAG_ICCPROFILE, icc.size(), icc.begin());
     }
 
 }
